@@ -31,4 +31,6 @@ wandb/
 mlruns/
 
 !data/raw/.gitkeep
+!data/raw/manifest.json
+!data/raw/market_data.parquet.zip
 !data/processed/.gitkeep

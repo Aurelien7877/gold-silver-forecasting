@@ -1,7 +1,7 @@
 PYTHON := .venv/bin/python
 PIP := .venv/bin/pip
 
-.PHONY: install install-research test lint download analysis train predict export-hf
+.PHONY: install install-research test lint download analysis train predict figures export-hf
 
 install:
 	$(PIP) install -e '.[dev]'
@@ -26,6 +26,9 @@ train:
 
 predict:
 	PYTHONPATH=src $(PYTHON) scripts/predict.py
+
+figures:
+	MPLBACKEND=Agg PYTHONPATH=src $(PYTHON) scripts/generate_report_figures.py
 
 export-hf:
 	PYTHONPATH=src $(PYTHON) scripts/export_hf.py
