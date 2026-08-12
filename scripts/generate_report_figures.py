@@ -39,6 +39,19 @@ def main() -> None:
 
     gold = pd.read_csv(processed / "gold_test_comparison.csv")
     silver = pd.read_csv(processed / "silver_test_comparison.csv")
+    for asset, table in (("gold", gold), ("silver", silver)):
+        foundation = processed / f"{asset}_foundation_comparison.csv"
+        if foundation.exists():
+            extra = pd.read_csv(foundation).rename(columns={"validation_sharpe": "best_score"})
+            extra["selected"] = False
+            for column in table.columns:
+                if column not in extra:
+                    extra[column] = 0.0
+            extra = extra[table.columns]
+            if asset == "gold":
+                gold = pd.concat([table, extra], ignore_index=True)
+            else:
+                silver = pd.concat([table, extra], ignore_index=True)
     fig, ax = plt.subplots(figsize=(11, 5))
     positions = range(len(gold))
     ax.bar([position - 0.2 for position in positions], gold["sharpe"], width=0.4, label="Gold", color="#d49a00")
@@ -63,10 +76,11 @@ def main() -> None:
     fig.savefig(output / "gold_robustness.png", dpi=140)
     plt.close(fig)
 
-    prediction_specs = {
-        "Gold": ("gold_oos_predictions.csv", "extra_trees", "#d49a00"),
-        "Silver": ("silver_oos_predictions.csv", "hist_gradient_boosting", "#777777"),
-    }
+    prediction_specs = {}
+    for asset, color in (("Gold", "#d49a00"), ("Silver", "#777777")):
+        frame = pd.read_csv(processed / f"{asset.lower()}_test_comparison.csv")
+        winner = frame.loc[frame["selected"], "family"].iloc[0]
+        prediction_specs[asset] = (f"{asset.lower()}_oos_predictions.csv", winner, color)
     fig, axes = plt.subplots(2, 2, figsize=(14, 8), constrained_layout=True)
     for row, (asset, (filename, model, color)) in enumerate(prediction_specs.items()):
         frame = pd.read_csv(processed / filename, index_col=0, parse_dates=True)

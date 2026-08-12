@@ -26,9 +26,26 @@ class SearchResult:
 
 
 def net_sharpe_scorer(estimator, X, y) -> float:
-    predictions = estimator.predict(X)
-    report = backtest_predictions(pd.Series(predictions, index=X.index), pd.Series(y, index=X.index), ProjectConfig().backtest)
-    return report.metrics["sharpe"]
+    return make_net_sharpe_scorer(ProjectConfig())(estimator, X, y)
+
+
+def make_net_sharpe_scorer(config: ProjectConfig):
+    """Create a scorer that uses the configured costs and signal threshold.
+
+    A closure is necessary because scikit-learn calls scorers with only
+    ``(estimator, X, y)``. Keeping the configuration here prevents a search
+    from silently reverting to a different backtest protocol.
+    """
+    def scorer(estimator, X, y) -> float:
+        predictions = estimator.predict(X)
+        report = backtest_predictions(
+            pd.Series(predictions, index=X.index),
+            pd.Series(y, index=X.index),
+            config.backtest,
+        )
+        return report.metrics["sharpe"]
+
+    return scorer
 
 
 def _time_splitter(X: pd.DataFrame, config: ProjectConfig) -> TimeSeriesSplit:
@@ -63,7 +80,7 @@ def run_walk_forward_search(X: pd.DataFrame, y: pd.Series, model_family: str, co
     search = GridSearchCV(
         estimator=estimator,
         param_grid=combinations,
-        scoring=net_sharpe_scorer,
+        scoring=make_net_sharpe_scorer(config),
         cv=_time_splitter(X, config),
         refit=True,
         n_jobs=config.search.n_jobs,
@@ -175,6 +192,7 @@ def diebold_mariano_test(
     prediction_a: pd.Series | np.ndarray,
     prediction_b: pd.Series | np.ndarray,
     loss: str = "squared_error",
+    hac_lags: int | None = None,
 ) -> dict[str, float]:
     """One-step Diebold-Mariano test on paired out-of-sample forecasts.
 
@@ -194,13 +212,27 @@ def diebold_mariano_test(
     else:
         raise ValueError("loss must be 'squared_error' or 'absolute_error'.")
     n = len(differential)
-    variance = float(np.var(differential, ddof=1)) if n > 1 else 0.0
+    if n > 1:
+        # Newey-West long-run variance protects the paired comparison from
+        # short-memory autocorrelation in the loss differential.
+        lags = min(5, n - 1) if hac_lags is None else min(max(0, int(hac_lags)), n - 1)
+        centered = differential - differential.mean()
+        gamma0 = float(np.mean(centered * centered))
+        long_run_variance = gamma0
+        for lag in range(1, lags + 1):
+            covariance = float(np.mean(centered[lag:] * centered[:-lag]))
+            weight = 1.0 - lag / (lags + 1.0)
+            long_run_variance += 2.0 * weight * covariance
+        variance = max(0.0, long_run_variance)
+    else:
+        lags, variance = 0, 0.0
     statistic = float(differential.mean() / np.sqrt(variance / n)) if variance > 0 else 0.0
     return {
         "n_observations": float(n),
         "mean_loss_difference_a_minus_b": float(differential.mean()) if n else 0.0,
         "dm_statistic": statistic,
         "p_value_two_sided": float(2.0 * norm.sf(abs(statistic))),
+        "hac_lags": float(lags),
     }
 
 

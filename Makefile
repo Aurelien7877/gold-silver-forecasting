@@ -1,7 +1,7 @@
 PYTHON := .venv/bin/python
 PIP := .venv/bin/pip
 
-.PHONY: install install-research test lint download analysis train predict figures export-hf
+.PHONY: install install-research test lint download analysis train foundation-benchmark joint-benchmark predict figures export-hf
 
 install:
 	$(PIP) install -e '.[dev]'
@@ -23,6 +23,14 @@ analysis:
 
 train:
 	PYTHONPATH=src $(PYTHON) scripts/train.py
+
+foundation-benchmark:
+	PYTHONPATH=src $(PYTHON) scripts/benchmark_foundation_models.py \
+		--chronos-path "$${GOLD_SILVER_CHRONOS_PATH}" \
+		--timesfm-path "$${GOLD_SILVER_TIMESFM_PATH}"
+
+joint-benchmark:
+	PYTHONPATH=src $(PYTHON) scripts/benchmark_joint_model.py
 
 predict:
 	PYTHONPATH=src $(PYTHON) scripts/predict.py

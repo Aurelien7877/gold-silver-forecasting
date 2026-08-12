@@ -37,6 +37,8 @@ class FeatureConfig:
     windows: list[int] = field(default_factory=lambda: [5, 10, 20, 60])
     min_history: int = 60
     include_current_returns: bool = True
+    include_ohlc_features: bool = True
+    include_calendar_features: bool = True
 
 
 @dataclass

@@ -43,10 +43,10 @@ def summarize_correlations(report: pd.DataFrame) -> str:
         lag_text = "aucun lag exploitable"
     else:
         best = lead_lag.iloc[lead_lag["pearson"].abs().argmax()]
-        lag_text = f"lag {int(best['window'])} avec Pearson={best['pearson']:.3f}"
+        lag_text = f"lag {int(best['window'])} with Pearson={best['pearson']:.3f}"
     return (
-        f"Corrélation des niveaux: Pearson={levels['pearson']:.3f}. "
-        f"Corrélation des rendements: Pearson={returns['pearson']:.3f}, "
-        f"Spearman={returns['spearman']:.3f}. Meilleur lead/lag observé: {lag_text}. "
-        "Ces statistiques décrivent une dépendance historique et ne démontrent pas une causalité."
+        f"Price-level correlation: Pearson={levels['pearson']:.3f}. "
+        f"Return correlation: Pearson={returns['pearson']:.3f}, "
+        f"Spearman={returns['spearman']:.3f}. Strongest observed lead/lag: {lag_text}. "
+        "These statistics describe historical dependence; they do not establish causality or predictive power."
     )

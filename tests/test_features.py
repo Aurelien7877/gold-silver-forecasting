@@ -32,3 +32,20 @@ def test_features_do_not_use_future_rows():
     altered = build_features(changed, FeatureConfig(min_history=1))
     common = baseline.index[:-1]
     pd.testing.assert_frame_equal(baseline.loc[common], altered.loc[common])
+
+
+def test_ohlc_features_are_causal_and_keep_available_rows():
+    raw = sample_market()
+    raw["gold_open"] = raw["gold_close"] * 0.99
+    raw["gold_high"] = raw["gold_close"] * 1.01
+    raw["gold_low"] = raw["gold_close"] * 0.98
+    raw["silver_open"] = raw["silver_close"] * 0.99
+    raw["silver_high"] = raw["silver_close"] * 1.01
+    raw["silver_low"] = raw["silver_close"] * 0.98
+    baseline = build_features(raw, FeatureConfig(min_history=1))
+    altered = raw.copy()
+    altered.iloc[-1, altered.columns.get_loc("gold_high")] = 99999.0
+    changed = build_features(altered, FeatureConfig(min_history=1))
+    common = baseline.index[:-1]
+    pd.testing.assert_frame_equal(baseline.loc[common], changed.loc[common])
+    assert baseline["gold_ohlc_available"].eq(1.0).all()

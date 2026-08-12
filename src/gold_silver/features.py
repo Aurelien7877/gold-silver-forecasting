@@ -35,6 +35,39 @@ def build_features(raw_data: pd.DataFrame, config: FeatureConfig | object) -> pd
         output[f"{asset}_return"] = ret
         if feature_config.include_current_returns:
             output[f"{asset}_return_current"] = ret
+
+        # End-of-day OHLC fields are known at the prediction timestamp. These
+        # describe the completed session and never reference t+1.
+        if feature_config.include_ohlc_features:
+            open_col = _find_column(frame, asset, "open")
+            high_col = _find_column(frame, asset, "high")
+            low_col = _find_column(frame, asset, "low")
+            if open_col and high_col and low_col:
+                open_price = pd.to_numeric(frame[open_col], errors="coerce").reindex(frame.index)
+                high_price = pd.to_numeric(frame[high_col], errors="coerce").reindex(frame.index)
+                low_price = pd.to_numeric(frame[low_col], errors="coerce").reindex(frame.index)
+                valid_range = (high_price > 0) & (low_price > 0) & (high_price >= low_price)
+                output[f"{asset}_ohlc_available"] = valid_range.astype(float)
+                output[f"{asset}_intraday_return"] = np.log(price / open_price.where(open_price > 0))
+                output[f"{asset}_range_log"] = np.log(
+                    (high_price / low_price.where(low_price > 0)).where(valid_range)
+                )
+                output[f"{asset}_close_location"] = (
+                    ((price - low_price) / (high_price - low_price).replace(0, np.nan))
+                    .clip(0.0, 1.0)
+                    .where(valid_range)
+                )
+                output[f"{asset}_overnight_gap"] = np.log(
+                    open_price.where(open_price > 0) / price_observed.shift(1).reindex(frame.index)
+                )
+                # A missing provider field is represented by a neutral value
+                # plus the availability flag above. This keeps valid dates
+                # instead of silently deleting whole historical periods.
+                output[f"{asset}_intraday_return"] = output[f"{asset}_intraday_return"].fillna(0.0)
+                output[f"{asset}_range_log"] = output[f"{asset}_range_log"].fillna(0.0)
+                output[f"{asset}_close_location"] = output[f"{asset}_close_location"].fillna(0.5)
+                output[f"{asset}_overnight_gap"] = output[f"{asset}_overnight_gap"].fillna(0.0)
+
         volume_col = _find_column(frame, asset, "volume")
         if volume_col:
             volume_observed = pd.to_numeric(frame[volume_col], errors="coerce").reindex(price_observed.index)
@@ -57,6 +90,23 @@ def build_features(raw_data: pd.DataFrame, config: FeatureConfig | object) -> pd
         output[f"gold_silver_return_corr_{window}"] = output["gold_return"].rolling(window).corr(
             output["silver_return"]
         )
+        gold_var = output["gold_return"].rolling(window).var()
+        silver_var = output["silver_return"].rolling(window).var()
+        covariance = output["gold_return"].rolling(window).cov(output["silver_return"])
+        output[f"silver_beta_to_gold_{window}"] = (covariance / gold_var).replace(
+            [np.inf, -np.inf], np.nan
+        ).fillna(0.0)
+        output[f"gold_beta_to_silver_{window}"] = (covariance / silver_var).replace(
+            [np.inf, -np.inf], np.nan
+        ).fillna(0.0)
+
+    if feature_config.include_calendar_features:
+        day_of_year = output.index.dayofyear.to_numpy()
+        day_of_week = output.index.dayofweek.to_numpy()
+        output["calendar_weekday_sin"] = np.sin(2.0 * np.pi * day_of_week / 5.0)
+        output["calendar_weekday_cos"] = np.cos(2.0 * np.pi * day_of_week / 5.0)
+        output["calendar_year_sin"] = np.sin(2.0 * np.pi * day_of_year / 365.25)
+        output["calendar_year_cos"] = np.cos(2.0 * np.pi * day_of_year / 365.25)
 
     # External market series are transformed into current changes and lags.
     external_features: dict[str, pd.Series] = {}

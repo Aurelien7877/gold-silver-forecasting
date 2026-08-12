@@ -42,6 +42,40 @@ class BaselineRegressor(BaseEstimator, RegressorMixin):
         raise ValueError(f"Unknown baseline kind: {self.kind}")
 
 
+class TreeBlendRegressor(BaseEstimator, RegressorMixin):
+    """Leakage-safe blend of two strong local tree learners.
+
+    ExtraTrees averages many randomized trees and HistGradientBoosting builds
+    trees sequentially. Their errors are not identical, so a fixed blend can
+    reduce model-specific variance. The blend weight is selected chronologically
+    by the outer walk-forward search; no locked-test value is used here.
+    """
+
+    def __init__(self, asset: str = "gold", extra_trees_weight: float = 0.75, random_state: int = 42):
+        self.asset = asset
+        self.extra_trees_weight = extra_trees_weight
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        if self.asset == "gold":
+            extra_params = dict(max_depth=6, max_features=0.7, min_samples_leaf=10)
+            gradient_params = dict(max_iter=100, learning_rate=0.03, max_leaf_nodes=7, l2_regularization=0.0)
+        else:
+            extra_params = dict(max_depth=4, max_features=1.0, min_samples_leaf=10)
+            gradient_params = dict(max_iter=100, learning_rate=0.03, max_leaf_nodes=15, l2_regularization=0.0)
+        self.extra_trees_ = ExtraTreesRegressor(
+            n_estimators=300, random_state=self.random_state, n_jobs=1, **extra_params
+        ).fit(X, y)
+        self.gradient_boosting_ = HistGradientBoostingRegressor(
+            random_state=self.random_state, **gradient_params
+        ).fit(X, y)
+        return self
+
+    def predict(self, X):
+        weight = float(self.extra_trees_weight)
+        return weight * self.extra_trees_.predict(X) + (1.0 - weight) * self.gradient_boosting_.predict(X)
+
+
 class TSMixerRegressor(BaseEstimator, RegressorMixin):
     """Small MLP-Mixer over the feature vector, designed for local CPU/MPS runs."""
 
@@ -569,16 +603,20 @@ def candidate_specs(
                 },
             ],
         ),
+        "tree_blend": (
+            TreeBlendRegressor(asset=asset, random_state=random_state),
+            {"extra_trees_weight": [0.25, 0.5, 0.75, 1.0]},
+        ),
         # One stable local configuration; repeated torch grids can segfault
         # with some macOS wheels, while tabular families use full grids.
-        "tsmixer": (TSMixerRegressor(random_state=random_state), {"hidden_dim": [16], "n_blocks": [1], "dropout": [0.0], "learning_rate": [3e-4], "epochs": [10]}),
+        "tsmixer": (TSMixerRegressor(random_state=random_state, epochs=5, patience=2), {"hidden_dim": [16], "n_blocks": [1], "dropout": [0.0], "learning_rate": [3e-4], "epochs": [5], "patience": [2]}),
         "patch_tst": (
-            PatchTSTRegressor(lookback=32, patch_length=8, patch_stride=4, hidden_dim=16, epochs=8, random_state=random_state),
-            {"lookback": [32], "patch_length": [8], "patch_stride": [4], "hidden_dim": [16], "n_layers": [1], "dropout": [0.1], "learning_rate": [1e-3], "epochs": [8]},
+            PatchTSTRegressor(lookback=32, patch_length=8, patch_stride=4, hidden_dim=16, epochs=5, patience=2, random_state=random_state),
+            {"lookback": [32], "patch_length": [8], "patch_stride": [4], "hidden_dim": [16], "n_layers": [1], "dropout": [0.1], "learning_rate": [1e-3], "epochs": [5], "patience": [2]},
         ),
         "time_mixer": (
-            TimeMixerRegressor(lookback=32, hidden_dim=16, n_layers=1, epochs=8, random_state=random_state),
-            {"lookback": [32], "hidden_dim": [16], "n_layers": [1], "dropout": [0.1], "learning_rate": [1e-3], "epochs": [8]},
+            TimeMixerRegressor(lookback=32, hidden_dim=16, n_layers=1, epochs=5, patience=2, random_state=random_state),
+            {"lookback": [32], "hidden_dim": [16], "n_layers": [1], "dropout": [0.1], "learning_rate": [1e-3], "epochs": [5], "patience": [2]},
         ),
     }
     if include_xgboost:
