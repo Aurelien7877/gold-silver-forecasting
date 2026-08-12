@@ -107,9 +107,15 @@ ExtraTrees is the best observed Gold model, but it is not statistically superior
 
 ![Normalized Gold and Silver prices](docs/figures/normalized_prices.png)
 
+The locked-test predictions are shown below as 20-day rolling predicted versus realized returns. The scatter panels show the central 99% of one-step observations so that a few extreme market moves do not make the relationship unreadable.
+
+![Out-of-sample prediction diagnostics](docs/figures/prediction_diagnostics.png)
+
 ![Model benchmark](docs/figures/model_benchmark.png)
 
 ![Gold robustness](docs/figures/gold_robustness.png)
+
+![Strategy equity and drawdown](docs/figures/strategy_performance.png)
 
 ## Notebooks
 
