@@ -150,7 +150,7 @@ def main() -> None:
     axes[1].set_xticks(positions, reality["asset"])
     axes[1].set_ylabel("Sharpe")
     axes[1].set_title("White Reality Check: winner vs data-snooping null")
-    axes[1].legend(fontsize=8)
+    axes[1].legend(fontsize=8, loc="lower left")
     for position, p_value in zip(positions, reality["p_value_max_sharpe"]):
         axes[1].text(position, max(reality["bootstrap_max_sharpe_95"]) * 1.02, f"p={p_value:.3f}", ha="center", fontsize=9)
     fig.savefig(output / "robustness.png", dpi=140)

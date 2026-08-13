@@ -31,6 +31,15 @@ def main() -> None:
         predictions = pd.read_csv(
             output / f"{asset}_oos_predictions.csv", index_col=0, parse_dates=True
         )
+        foundation_predictions_path = output / f"{asset}_foundation_predictions.csv"
+        if foundation_predictions_path.exists():
+            foundation_predictions = pd.read_csv(
+                foundation_predictions_path, index_col=0, parse_dates=True
+            )
+            predictions = predictions.join(
+                foundation_predictions.drop(columns=["realized_return"], errors="ignore"),
+                how="inner",
+            )
         comparison = pd.read_csv(output / f"{asset}_test_comparison.csv")
         winner = comparison.loc[comparison["selected"], "family"].iloc[0]
         selected_predictions = predictions[winner]

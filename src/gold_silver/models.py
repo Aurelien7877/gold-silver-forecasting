@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor
-from sklearn.linear_model import ElasticNet, Ridge
+from sklearn.linear_model import ElasticNet, LogisticRegression, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -40,6 +40,46 @@ class BaselineRegressor(BaseEstimator, RegressorMixin):
             column = f"{self.asset}_return_mean_5"
             return np.asarray(X[column])
         raise ValueError(f"Unknown baseline kind: {self.kind}")
+
+
+class DirectionalLogisticRegressor(BaseEstimator, RegressorMixin):
+    """Predict the next-day direction and expose a centered probability score.
+
+    The deployed backtest only uses the sign of a forecast.  This estimator
+    therefore optimizes the directional classification problem and returns
+    ``P(up) - 0.5`` so the existing long/short interface can consume it.
+    Class balancing is useful because daily positive/negative returns are not
+    guaranteed to be exactly symmetric in a finite training window.
+    """
+
+    def __init__(self, C: float = 0.1, class_weight: str | None = "balanced", max_iter: int = 2000):
+        self.C = C
+        self.class_weight = class_weight
+        self.max_iter = max_iter
+
+    def fit(self, X, y):
+        target = (np.asarray(y, dtype=float) > 0.0).astype(int)
+        self.model_ = Pipeline(
+            [
+                ("scale", StandardScaler()),
+                (
+                    "model",
+                    LogisticRegression(
+                        C=self.C,
+                        class_weight=self.class_weight,
+                        max_iter=self.max_iter,
+                    ),
+                ),
+            ]
+        ).fit(X, target)
+        self.classes_ = self.model_.named_steps["model"].classes_
+        return self
+
+    def predict(self, X):
+        probabilities = self.model_.predict_proba(X)
+        if probabilities.shape[1] != 2:
+            raise ValueError("DirectionalLogisticRegressor requires both return directions in training data.")
+        return probabilities[:, 1] - 0.5
 
 
 class TreeBlendRegressor(BaseEstimator, RegressorMixin):
@@ -471,12 +511,13 @@ class ChronosRegressor(_FoundationRegressor):
     def _load_model(self):
         try:
             import torch
-            from chronos import BaseChronosPipeline
+            from chronos import BaseChronosPipeline, Chronos2Pipeline
         except ImportError as exc:  # pragma: no cover - optional runtime
             raise ImportError("ChronosRegressor requires chronos-forecasting.") from exc
         if self.model_id not in self._pipeline_cache:
             local_only = os.path.isdir(self.model_id)
-            self._pipeline_cache[self.model_id] = BaseChronosPipeline.from_pretrained(
+            pipeline_class = Chronos2Pipeline if "chronos-2" in self.model_id else BaseChronosPipeline
+            self._pipeline_cache[self.model_id] = pipeline_class.from_pretrained(
                 self.model_id, device_map="cpu", torch_dtype=torch.float32,
                 local_files_only=local_only,
             )
@@ -571,6 +612,10 @@ def candidate_specs(
         "zero": (BaselineRegressor(kind="zero", asset=asset), {}),
         "last_return": (BaselineRegressor(kind="last", asset=asset), {}),
         "moving_average": (BaselineRegressor(kind="moving_average", asset=asset), {}),
+        "directional_logistic": (
+            DirectionalLogisticRegressor(),
+            {"C": [0.01, 0.1, 1.0, 10.0], "class_weight": ["balanced"]},
+        ),
         "ridge": (Pipeline([("scale", StandardScaler()), ("model", Ridge())]), {"model__alpha": [0.01, 0.1, 1.0, 10.0, 100.0]}),
         "elasticnet": (Pipeline([("scale", StandardScaler()), ("model", ElasticNet(max_iter=5000, random_state=random_state))]), {"model__alpha": [1e-4, 1e-3, 1e-2, 1e-1], "model__l1_ratio": [0.1, 0.5, 0.9]}),
         "hist_gradient_boosting": (HistGradientBoostingRegressor(random_state=random_state), {"max_iter": [100, 250], "learning_rate": [0.03, 0.08], "max_leaf_nodes": [7, 15], "l2_regularization": [0.0, 1.0]}),

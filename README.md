@@ -6,9 +6,9 @@ Reproducible research for next-day (`J+1`) Gold and Silver log-return forecastin
 
 - Strict chronological feature construction with leakage tests.
 - Separate Gold and Silver models with a locked final test period.
-- Tabular models: Ridge, ElasticNet, ExtraTrees and HistGradientBoosting.
+- Tabular models: Ridge, ElasticNet, directional Logistic Regression, ExtraTrees and HistGradientBoosting.
 - Lightweight causal TSMixer, PatchTST-style and TimeMixer-style models for local CPU/MPS experiments.
-- Optional real foundation-model adapters for Chronos-Bolt Tiny and TimesFM 2.5.
+- Optional real foundation-model adapters for Chronos-2 and TimesFM 2.5.
 - Walk-forward model selection, transaction-cost backtests, Diebold–Mariano tests, block bootstrap and Holm–Bonferroni correction.
 - English notebooks with executable plots and a small set of tracked report figures.
 - GitHub Actions tests on macOS 14 / Python 3.11.
@@ -66,7 +66,7 @@ For the foundation-model benchmark using local checkpoints:
 ```bash
 python scripts/train.py \
   --include-foundation-models \
-  --chronos-path /path/to/chronos-bolt-tiny \
+  --chronos-path /path/to/chronos-2 \
   --timesfm-path /path/to/timesfm-2.5-200m-pytorch
 ```
 
@@ -75,7 +75,7 @@ The checkpoint adapters follow the official [Chronos implementation](https://git
 To refresh only the optional foundation comparison without rerunning every local model:
 
 ```bash
-GOLD_SILVER_CHRONOS_PATH=/path/to/chronos-bolt-tiny \
+GOLD_SILVER_CHRONOS_PATH=/path/to/chronos-2 \
 GOLD_SILVER_TIMESFM_PATH=/path/to/timesfm-2.5-200m-pytorch \
 make foundation-benchmark
 ```
@@ -106,10 +106,21 @@ Terms used in the reports:
 - **Holm–Bonferroni correction** : Adjusts p-values when many competitors are compared. It reduces false discoveries and makes a “significant winner” claim harder to obtain.
 - **White Reality Check** : Re-samples all candidate strategy returns together and recomputes the maximum Sharpe each time. It asks whether the best-looking model could have appeared by selecting the winner from many noisy candidates.
 - **Rolling-origin stability** : Refits the selected fixed-parameter model before several historical one-year windows. It is a fragility diagnostic; because parameters were selected once on the full development period, it is not a replacement for nested out-of-sample selection.
+- **Directional classifier** : Learns whether the next return is positive or negative instead of fitting its exact magnitude. It returns a centered probability score because the trading rule ultimately uses the forecast sign.
+- **IC (information coefficient)** : Correlation between a forecast and the realized return. It measures directional or ranking information, not the size of a profitable portfolio after costs.
+- **Sortino ratio** : Sharpe-like risk-adjusted return that divides by downside volatility only. It should be read together with drawdown and uncertainty because it can be unstable in short samples.
+- **Maximum drawdown** : Largest peak-to-trough fall in the compounded equity curve. It describes loss severity and recovery risk rather than forecast accuracy.
+- **Calmar ratio** : Annualized return divided by absolute maximum drawdown. It combines growth and drawdown control, but is unstable over short samples.
+- **p-value** : Probability, under a specified null model, of seeing a result at least this extreme. It is not the probability that a model is true or will remain profitable.
+- **SOTA** : State of the art means the strongest result within a clearly defined, reproducible comparison set. It is not a universal claim about every model in the literature.
+- **Foundation model** : A large pretrained time-series model reused for a new series, often without local fine-tuning. Its checkpoint and input information must be documented before comparison.
+- **MPS** : Apple’s Metal Performance Shaders backend for PyTorch. It may accelerate compatible neural layers on Apple Silicon, while CPU remains the reproducible fallback.
 - **Regime analysis** : Splits the locked test into up/down, high/low-volatility and calendar-year groups. These labels are descriptive after the fact and must not be used to tune the deployed signal.
 - **PatchTST** : A Transformer that converts temporal patches into tokens and models them with shared channel weights; the local implementation is intentionally compact for Apple Silicon.
 - **TimeMixer** : A multiscale MLP architecture that mixes fine and coarse temporal patterns; the local implementation is a lightweight research approximation, not the full paper code.
 - **Chronos and TimesFM** : Pretrained time-series foundation models used here as zero-shot univariate baselines. They are evaluated on the same dates and costs, but they do not receive the engineered cross-asset features.
+
+For a one- or two-line explanation of every tracked figure and notebook panel, see the [figure guide](docs/figure_guide.md).
 
 ## Current benchmark
 
@@ -118,7 +129,7 @@ The current cache uses five walk-forward folds, a one-day horizon and 10 bps cos
 | Asset | Validation winner | Validation Sharpe | Locked-test Sharpe | Test cumulative return |
 |---|---|---:|---:|---:|
 | Gold | XGBoost | 0.497 | 0.605 | +46.2% |
-| Silver | HistGradientBoosting | 0.435 | 0.904 | +222.7% |
+| Silver | Directional Logistic Regression | 1.211 | 1.242 | +472.1% |
 
 Gold test comparison:
 
@@ -126,10 +137,11 @@ Gold test comparison:
 |---|---:|
 | ExtraTrees | 1.093 |
 | XGBoost (selected by validation) | 0.605 |
+| Directional Logistic Regression | 0.414 |
 | TimesFM 2.5 | 0.551 |
 | HistGradientBoosting | 0.357 |
 | Tree blend | 0.269 |
-| Chronos-Bolt Tiny | -0.412 |
+| Chronos-2 | -0.412 |
 | TimeMixer-style | -0.387 |
 | PatchTST-style | -1.190 |
 
@@ -139,22 +151,23 @@ Silver test comparison:
 
 | Model | Net Sharpe |
 |---|---:|
+| Directional Logistic Regression (selected by validation) | 1.242 |
 | Ridge | 1.052 |
 | ExtraTrees | 0.924 |
-| HistGradientBoosting (selected by validation) | 0.904 |
+| HistGradientBoosting | 0.904 |
 | ElasticNet | 0.886 |
 | XGBoost | 0.738 |
 | Tree blend | 0.630 |
 | TimesFM 2.5 | -0.038 |
-| Chronos-Bolt Tiny | -0.269 |
+| Chronos-2 | -0.269 |
 
-The higher Silver Ridge test Sharpe for Ridge is intentionally not selected after the fact: the model decision is made from validation only. This is a useful warning against choosing a winner by looking at the locked test.
+The directional Silver model is selected from validation and improves the locked-test Sharpe from `0.904` to `1.242` relative to the previous HistGradientBoosting winner. The higher Gold ExtraTrees test Sharpe is still not selected after the fact: every model decision is made from validation only.
 
 We also probed one shared multi-output ExtraTrees model. It reached validation Sharpe 0.323 for Gold and −0.571 for Silver, so the shared model is rejected by the same validation rule rather than being forced into production.
 
 The foundation-model comparison is deliberately separate because Chronos and TimesFM receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. Both foundation models are nevertheless evaluated on the same 970 locked-test dates, one-day horizon and 10 bps costs.
 
-The White Reality Check p-values are 0.115 for Gold and 0.102 for Silver across 12 local candidates. The fixed-parameter origin plots also contain negative historical windows, so the current evidence supports research continuation, not a financial deployment claim.
+The White Reality Check p-values are 0.124 for Gold and 0.032 for Silver across 13 local candidates, including the directional model. Silver clears this particular 5% candidate-aware null, but its rolling-origin results still include negative historical windows and the external architecture comparison is not exhaustive; this is evidence for continued research, not a universal SOTA or financial-deployment claim.
 
 ### Architecture review
 
@@ -162,6 +175,7 @@ The White Reality Check p-values are 0.115 for Gold and 0.102 for Silver across 
 - **TimeMixer** separates fine and coarse temporal scales with MLP mixing; our version is a Mac-sized approximation of its multiscale idea. See the [TimeMixer paper](https://arxiv.org/abs/2405.14616).
 - **SAMformer** adds sharpness-aware optimization to a Transformer and is a stronger candidate for a future experiment, but its published benchmarks target long-horizon datasets rather than this one-day financial-return task. See [SAMformer](https://arxiv.org/abs/2402.10198).
 - **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs, unlike the univariate Chronos adapter currently used here. It is a logical next benchmark if a local checkpoint and adapter are available. See [Chronos-2](https://arxiv.org/abs/2510.15821).
+- **Directional Logistic Regression** is not claimed as a universal SOTA architecture; it is a task-aligned candidate because the trading layer ultimately uses only the sign of the forecast. It wins Silver validation in the current data snapshot, while Gold still selects XGBoost.
 - A recent financial-return study finds that foundation models can win task rankings while gains over random-walk benchmarks remain sparse; this supports our requirement for equalized windows, costs and multiple-comparison tests. See [Pretrained Time-Series Foundation Models for Financial Return Forecasting](https://arxiv.org/abs/2606.27100).
 
 ## Visual research summary
@@ -206,6 +220,7 @@ The `make robustness` command regenerates the Reality Check, regime tables and r
 
 - `data/processed/*_leaderboard.csv`: validation model search results.
 - `data/processed/*_test_comparison.csv`: locked-test metrics for every evaluated family.
+- `data/processed/*_foundation_predictions.csv`: optional Chronos/TimesFM forecasts on the same locked dates, used by the expanded Reality Check when available.
 - `data/processed/*_statistical_tests.csv`: DM tests, Holm-adjusted p-values and paired Sharpe bootstrap intervals.
 - `data/processed/*_reality_check.csv`: candidate-aware White Reality Check against data-snooping.
 - `data/processed/*_regime_performance.csv`: descriptive direction, volatility and calendar regime tables.

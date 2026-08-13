@@ -45,6 +45,7 @@ def main() -> None:
         X, y = make_targets(features, target=asset)
         X_dev, X_test, y_dev, y_test = split_development_test(X, y, config)
         rows = []
+        prediction_frame = pd.DataFrame({"realized_return": y_test})
         for family in ("chronos", "timesfm"):
             selection = run_walk_forward_search(X_dev, y_dev, family, config, asset=asset)
             predictions, _ = evaluate_locked_test(
@@ -61,7 +62,9 @@ def main() -> None:
                     **bootstrap_sharpe_ci(report.equity["net_return"]),
                 }
             )
+            prediction_frame[family] = predictions
         pd.DataFrame(rows).to_csv(output / f"{asset}_foundation_comparison.csv", index=False)
+        prediction_frame.to_csv(output / f"{asset}_foundation_predictions.csv")
 
 
 if __name__ == "__main__":
