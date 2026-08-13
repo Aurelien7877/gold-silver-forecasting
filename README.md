@@ -84,29 +84,32 @@ make foundation-benchmark
 
 - Targets: `log(close[t+1] / close[t])` for each asset.
 - Features: lagged returns, momentum, rolling volatility, moving averages, drawdown, volume, Gold/Silver ratio, rolling correlations, cross-asset returns and market covariates.
-- Split: final 20% locked as test; first 80% searched with five expanding walk-forward folds and `gap=1`.
+- Split: final 20% locked as test; one feature row is discarded as a target buffer; the first 80% is searched with five expanding walk-forward folds and `gap=1`.
 - Selection metric: mean annualized net Sharpe on validation, with turnover costs of 10 bps per unit turnover.
 - Signals: `-1`, `0` or `+1`, applied to the next realized return.
 - Statistical checks: one-step squared-error Diebold–Mariano tests, paired moving-block bootstrap for Sharpe differences and Holm–Bonferroni correction across competitors.
 
 Terms used in the reports:
 
-- **Log return** — `log(close[t+1] / close[t])` measures the proportional price change and adds cleanly across days. The model sees the return realized after the feature date, never the future close itself.
-- **OHLC features** — Open, High, Low and Close summarize the completed trading session. Intraday range, close location and overnight gap are available at the end of date `t`; missing historical fields receive a neutral value plus an availability flag.
-- **Pearson correlation** — Linear co-movement between two series. A high value is descriptive and can arise from common trends, so it is not evidence that one metal causes the other.
-- **Spearman correlation** — Rank-based co-movement, less sensitive to outliers and nonlinear scale. Agreement with Pearson suggests a stable monotonic relationship, not necessarily a trading edge.
-- **Rolling correlation** — Correlation recomputed over a moving window, here 20, 60 or 252 observations. It shows regime changes rather than one number averaged over the whole history.
-- **Lead/lag correlation** — Gold returns are compared with Silver returns shifted by several days. A peak at lag zero is contemporaneous association; a small nonzero peak is not sufficient evidence of tradable predictability.
-- **Walk-forward validation** — Each fold trains on earlier dates and validates on later dates. This approximates deployment and prevents random shuffling from leaking future regimes into training.
-- **Locked test** — The final 20% of dates is held untouched while features, models and hyperparameters are selected. It is the only period used for the final out-of-sample claim.
-- **Sharpe ratio** — Average net daily strategy return divided by its volatility, annualized by `sqrt(252)`. It rewards return per unit of risk but is unstable in finite samples and is not a guarantee.
-- **Turnover and costs** — Turnover is the absolute change in position; each unit costs 10 basis points in the reference backtest. This prevents a high-frequency signal from looking attractive only before implementation costs.
-- **Bootstrap interval** — A moving-block resampling interval for the Sharpe difference. Blocks preserve short-run dependence, but the interval remains descriptive rather than a proof of future performance.
-- **Diebold–Mariano test** — A paired test of forecast-loss differences on the same dates. The implementation uses a Newey–West variance estimate for short-memory dependence; it tests accuracy, not profitability by itself.
-- **Holm–Bonferroni correction** — Adjusts p-values when many competitors are compared. It reduces false discoveries and makes a “significant winner” claim harder to obtain.
-- **PatchTST** — A Transformer that converts temporal patches into tokens and models them with shared channel weights; the local implementation is intentionally compact for Apple Silicon.
-- **TimeMixer** — A multiscale MLP architecture that mixes fine and coarse temporal patterns; the local implementation is a lightweight research approximation, not the full paper code.
-- **Chronos and TimesFM** — Pretrained time-series foundation models used here as zero-shot univariate baselines. They are evaluated on the same dates and costs, but they do not receive the engineered cross-asset features.
+- **Log return** : `log(close[t+1] / close[t])` measures the proportional price change and adds cleanly across days. The model sees the return realized after the feature date, while the backtest converts it to the exact simple return `exp(log_return) - 1` before compounding.
+- **OHLC features** : Open, High, Low and Close summarize the completed trading session. Intraday range, close location and overnight gap are available at the end of date `t`; missing historical fields receive a neutral value plus an availability flag.
+- **Pearson correlation** : Linear co-movement between two series. A high value is descriptive and can arise from common trends, so it is not evidence that one metal causes the other.
+- **Spearman correlation** : Rank-based co-movement, less sensitive to outliers and nonlinear scale. Agreement with Pearson suggests a stable monotonic relationship, not necessarily a trading edge.
+- **Rolling correlation** : Correlation recomputed over a moving window, here 20, 60 or 252 observations. It shows regime changes rather than one number averaged over the whole history.
+- **Lead/lag correlation** : Gold returns are compared with Silver returns shifted by several days. A peak at lag zero is contemporaneous association; a small nonzero peak is not sufficient evidence of tradable predictability.
+- **Walk-forward validation** : Each fold trains on earlier dates and validates on later dates. This approximates deployment and prevents random shuffling from leaking future regimes into training.
+- **Locked test** : The final 20% of dates is held untouched while features, models and hyperparameters are selected. It is the only period used for the final out-of-sample claim.
+- **Sharpe ratio** : Average net daily strategy return divided by its volatility, annualized by `sqrt(252)`. It rewards return per unit of risk but is unstable in finite samples and is not a guarantee.
+- **Turnover and costs** : Turnover is the absolute change in position; each unit costs 10 basis points in the reference backtest. This prevents a high-frequency signal from looking attractive only before implementation costs.
+- **Bootstrap interval** : A moving-block resampling interval for the Sharpe difference. Blocks preserve short-run dependence, but the interval remains descriptive rather than a proof of future performance.
+- **Diebold–Mariano test** : A paired test of forecast-loss differences on the same dates. The implementation uses a Newey–West variance estimate for short-memory dependence; it tests accuracy, not profitability by itself.
+- **Holm–Bonferroni correction** : Adjusts p-values when many competitors are compared. It reduces false discoveries and makes a “significant winner” claim harder to obtain.
+- **White Reality Check** : Re-samples all candidate strategy returns together and recomputes the maximum Sharpe each time. It asks whether the best-looking model could have appeared by selecting the winner from many noisy candidates.
+- **Rolling-origin stability** : Refits the selected fixed-parameter model before several historical one-year windows. It is a fragility diagnostic; because parameters were selected once on the full development period, it is not a replacement for nested out-of-sample selection.
+- **Regime analysis** : Splits the locked test into up/down, high/low-volatility and calendar-year groups. These labels are descriptive after the fact and must not be used to tune the deployed signal.
+- **PatchTST** : A Transformer that converts temporal patches into tokens and models them with shared channel weights; the local implementation is intentionally compact for Apple Silicon.
+- **TimeMixer** : A multiscale MLP architecture that mixes fine and coarse temporal patterns; the local implementation is a lightweight research approximation, not the full paper code.
+- **Chronos and TimesFM** : Pretrained time-series foundation models used here as zero-shot univariate baselines. They are evaluated on the same dates and costs, but they do not receive the engineered cross-asset features.
 
 ## Current benchmark
 
@@ -114,40 +117,52 @@ The current cache uses five walk-forward folds, a one-day horizon and 10 bps cos
 
 | Asset | Validation winner | Validation Sharpe | Locked-test Sharpe | Test cumulative return |
 |---|---|---:|---:|---:|
-| Gold | ExtraTrees | 0.502 | 0.971 | +90.8% |
-| Silver | Tree blend | 0.497 | 0.630 | +98.9% |
+| Gold | XGBoost | 0.497 | 0.605 | +46.2% |
+| Silver | HistGradientBoosting | 0.435 | 0.904 | +222.7% |
 
 Gold test comparison:
 
 | Model | Net Sharpe |
 |---|---:|
-| ExtraTrees | 0.971 |
-| XGBoost | 0.475 |
-| Tree blend | 0.150 |
-| TimesFM 2.5 | 0.275 |
-| Chronos-Bolt Tiny | -0.409 |
-| PatchTST-style | -2.531 |
-| TimeMixer-style | -1.045 |
+| ExtraTrees | 1.093 |
+| XGBoost (selected by validation) | 0.605 |
+| TimesFM 2.5 | 0.551 |
+| HistGradientBoosting | 0.357 |
+| Tree blend | 0.269 |
+| Chronos-Bolt Tiny | -0.412 |
+| TimeMixer-style | -0.387 |
+| PatchTST-style | -1.190 |
 
-ExtraTrees is the best observed Gold model and the tree blend is the selected Silver model under this run. However, after Newey–West Diebold–Mariano testing and Holm–Bonferroni correction, Gold is not statistically superior to the zero baseline, XGBoost or the strongest tabular alternatives; this is evidence of a promising local winner, not proof of universal SOTA.
+ExtraTrees has the highest locked-test Gold Sharpe, but XGBoost is selected because it won validation. After Newey–West Diebold–Mariano testing, Holm correction and the White Reality Check, neither result is statistically strong enough to claim universal SOTA.
 
 Silver test comparison:
 
 | Model | Net Sharpe |
 |---|---:|
-| Ridge | 1.130 |
-| ExtraTrees | 0.756 |
-| Tree blend (selected by validation) | 0.630 |
-| XGBoost | 0.621 |
-| HistGradientBoosting | 0.259 |
-| Chronos-Bolt Tiny | -0.135 |
-| TimesFM 2.5 | -0.238 |
+| Ridge | 1.052 |
+| ExtraTrees | 0.924 |
+| HistGradientBoosting (selected by validation) | 0.904 |
+| ElasticNet | 0.886 |
+| XGBoost | 0.738 |
+| Tree blend | 0.630 |
+| TimesFM 2.5 | -0.038 |
+| Chronos-Bolt Tiny | -0.269 |
 
-The higher Silver Ridge test Sharpe is intentionally not selected after the fact: the model decision is made from validation only. This is a useful warning against choosing a winner by looking at the locked test.
+The higher Silver Ridge test Sharpe for Ridge is intentionally not selected after the fact: the model decision is made from validation only. This is a useful warning against choosing a winner by looking at the locked test.
 
-We also probed one shared multi-output ExtraTrees model. It reached validation Sharpe 0.174 for Gold and −0.669 for Silver, versus 0.502 and 0.497 for the selected separate models, so the shared model is rejected by the same validation rule despite test-period Sharpe of 0.866 and 0.785.
+We also probed one shared multi-output ExtraTrees model. It reached validation Sharpe 0.323 for Gold and −0.571 for Silver, so the shared model is rejected by the same validation rule rather than being forced into production.
 
 The foundation-model comparison is deliberately separate because Chronos and TimesFM receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. Both foundation models are nevertheless evaluated on the same 970 locked-test dates, one-day horizon and 10 bps costs.
+
+The White Reality Check p-values are 0.115 for Gold and 0.102 for Silver across 12 local candidates. The fixed-parameter origin plots also contain negative historical windows, so the current evidence supports research continuation, not a financial deployment claim.
+
+### Architecture review
+
+- **PatchTST** uses temporal patches as Transformer tokens and shared channel weights; our compact implementation tests the inductive bias locally, but it is not the full published training recipe. See the [original PatchTST paper](https://arxiv.org/abs/2211.14730).
+- **TimeMixer** separates fine and coarse temporal scales with MLP mixing; our version is a Mac-sized approximation of its multiscale idea. See the [TimeMixer paper](https://arxiv.org/abs/2405.14616).
+- **SAMformer** adds sharpness-aware optimization to a Transformer and is a stronger candidate for a future experiment, but its published benchmarks target long-horizon datasets rather than this one-day financial-return task. See [SAMformer](https://arxiv.org/abs/2402.10198).
+- **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs, unlike the univariate Chronos adapter currently used here. It is a logical next benchmark if a local checkpoint and adapter are available. See [Chronos-2](https://arxiv.org/abs/2510.15821).
+- A recent financial-return study finds that foundation models can win task rankings while gains over random-walk benchmarks remain sparse; this supports our requirement for equalized windows, costs and multiple-comparison tests. See [Pretrained Time-Series Foundation Models for Financial Return Forecasting](https://arxiv.org/abs/2606.27100).
 
 ## Visual research summary
 
@@ -171,22 +186,30 @@ This figure shows the Gold winner against competitors after multiple-comparison 
 
 The equity curve compounds net returns after turnover costs, while drawdown measures the fall from the previous equity high. A good model should have both acceptable growth and tolerable drawdowns.
 
+![Robustness diagnostics](docs/figures/robustness.png)
+
+The left panel shows how fixed final parameters behave across historical one-year origins; sign changes indicate regime sensitivity. The right panel compares the observed maximum Sharpe with the 95th percentile of a candidate-aware bootstrap null, which is why a high single-period Sharpe is not enough.
+
 ## Notebooks
 
 Run them from the repository root after extracting the snapshot:
 
-1. `01_data_and_correlations.ipynb` — coverage, normalized prices, returns and Gold/Silver dependence.
-2. `02_feature_quality.ipynb` — missingness, distributions, correlation heatmaps and leakage checks.
-3. `03_model_benchmark.ipynb` — validation leaderboard, locked-test comparison and model plots.
-4. `04_final_selection.ipynb` — equity curves, costs, bootstrap intervals and corrected statistical tests.
+1. `01_data_and_correlations.ipynb` : coverage, normalized prices, returns and Gold/Silver dependence.
+2. `02_feature_quality.ipynb` : missingness, distributions, correlation heatmaps and leakage checks.
+3. `03_model_benchmark.ipynb` : validation leaderboard, locked-test comparison and model plots.
+4. `04_final_selection.ipynb` : equity curves, costs, bootstrap intervals and corrected statistical tests.
 
 The optional `make joint-benchmark` command reproduces the shared-model probe; it is a diagnostic, not an after-the-fact replacement for the separately selected production candidates.
+The `make robustness` command regenerates the Reality Check, regime tables and rolling-origin stability diagnostics.
 
 ## Generated artifacts
 
 - `data/processed/*_leaderboard.csv`: validation model search results.
 - `data/processed/*_test_comparison.csv`: locked-test metrics for every evaluated family.
 - `data/processed/*_statistical_tests.csv`: DM tests, Holm-adjusted p-values and paired Sharpe bootstrap intervals.
+- `data/processed/*_reality_check.csv`: candidate-aware White Reality Check against data-snooping.
+- `data/processed/*_regime_performance.csv`: descriptive direction, volatility and calendar regime tables.
+- `data/processed/*_origin_stability.csv`: fixed-parameter historical rolling-origin diagnostics.
 - `reports/experiment_summary.json`: complete run metadata and selected model bundle information.
 - `models/gold_silver_bundle.joblib`: local final bundle, ignored by Git.
 

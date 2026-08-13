@@ -14,3 +14,13 @@ def test_backtest_charges_turnover_costs():
     assert costly.metrics["cumulative_return"] < free.metrics["cumulative_return"]
     # Initial entry is 1 unit; every reversal is a 2-unit turnover.
     assert np.isclose(costly.equity["turnover"].sum(), 7.0)
+
+
+def test_backtest_converts_log_return_to_simple_return():
+    index = pd.date_range("2024-01-01", periods=1, freq="D")
+    report = backtest_predictions(
+        pd.Series([1.0], index=index),
+        pd.Series([np.log(1.10)], index=index),
+        BacktestConfig(transaction_cost_bps=0),
+    )
+    assert np.isclose(report.equity.iloc[0]["net_return"], 0.10)

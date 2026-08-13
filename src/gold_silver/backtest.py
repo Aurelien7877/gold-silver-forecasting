@@ -42,7 +42,10 @@ def backtest_predictions(
     position = pd.Series(np.where(pred > threshold, 1.0, np.where(pred < -threshold, -1.0, 0.0)), index=pred.index)
     turnover = position.diff().abs().fillna(position.abs())
     cost = turnover * float(backtest_config.transaction_cost_bps) / 10_000.0
-    net_return = position * realized - cost
+    # Targets are log returns. Convert the signed log return back to a simple
+    # tradable return before subtracting simple transaction costs.
+    gross_strategy_return = np.expm1(position * realized)
+    net_return = gross_strategy_return - cost
     equity = pd.DataFrame({"prediction": pred, "realized_return": realized, "position": position, "turnover": turnover, "cost": cost, "net_return": net_return})
     cumulative = (1.0 + net_return).cumprod()
     running_max = cumulative.cummax()
@@ -50,7 +53,18 @@ def backtest_predictions(
     downside = net_return.where(net_return < 0, 0.0)
     downside_std = downside.std(ddof=1)
     annualization = int(backtest_config.annualization)
-    annual_return = float((1.0 + net_return.mean()) ** annualization - 1.0) if len(net_return) else 0.0
+    gross_returns = 1.0 + net_return.to_numpy(dtype=float)
+    if len(gross_returns) and np.all(gross_returns > 0.0):
+        annual_log_return = float(np.log(gross_returns).sum() * annualization / len(gross_returns))
+        annual_return = (
+            float(np.expm1(annual_log_return))
+            if annual_log_return < np.log(np.finfo(float).max)
+            else float("inf")
+        )
+    elif len(net_return) == 0:
+        annual_return = 0.0
+    else:
+        annual_return = -1.0
     correlation = float(pred.corr(realized)) if len(pred) > 1 and pred.std(ddof=1) > 0 and realized.std(ddof=1) > 0 else 0.0
     metrics = {
         "n_observations": float(len(net_return)),

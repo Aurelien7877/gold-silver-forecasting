@@ -18,7 +18,11 @@ from gold_silver.backtest import backtest_predictions, bootstrap_sharpe_ci
 from gold_silver.config import load_config
 from gold_silver.data import load_cached_market_data
 from gold_silver.features import build_features, make_targets
-from gold_silver.validation import evaluate_locked_test, run_walk_forward_search
+from gold_silver.validation import (
+    evaluate_locked_test,
+    run_walk_forward_search,
+    split_development_test,
+)
 
 
 def main() -> None:
@@ -39,9 +43,7 @@ def main() -> None:
 
     for asset in ("gold", "silver"):
         X, y = make_targets(features, target=asset)
-        split = int(len(X) * (1.0 - config.search.test_fraction))
-        X_dev, X_test = X.iloc[:split], X.iloc[split:]
-        y_dev, y_test = y.iloc[:split], y.iloc[split:]
+        X_dev, X_test, y_dev, y_test = split_development_test(X, y, config)
         rows = []
         for family in ("chronos", "timesfm"):
             selection = run_walk_forward_search(X_dev, y_dev, family, config, asset=asset)

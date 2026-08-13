@@ -124,6 +124,38 @@ def main() -> None:
     fig.savefig(output / "strategy_performance.png", dpi=140)
     plt.close(fig)
 
+    stability = {
+        "Gold": pd.read_csv(processed / "gold_origin_stability.csv"),
+        "Silver": pd.read_csv(processed / "silver_origin_stability.csv"),
+    }
+    reality = pd.concat(
+        [
+            pd.read_csv(processed / "gold_reality_check.csv").assign(asset="Gold"),
+            pd.read_csv(processed / "silver_reality_check.csv").assign(asset="Silver"),
+        ],
+        ignore_index=True,
+    )
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8), constrained_layout=True)
+    for asset, color in (("Gold", "#d49a00"), ("Silver", "#777777")):
+        table = stability[asset]
+        axes[0].plot(table["origin"], table["sharpe"], marker="o", label=asset, color=color)
+    axes[0].axhline(0, color="black", linewidth=0.8)
+    axes[0].set_title("Fixed-parameter rolling-origin stability")
+    axes[0].set_ylabel("Net Sharpe")
+    axes[0].tick_params(axis="x", rotation=35)
+    axes[0].legend()
+    positions = np.arange(len(reality))
+    axes[1].bar(positions - 0.18, reality["observed_max_sharpe"], width=0.36, label="Observed max", color="#244a7c")
+    axes[1].bar(positions + 0.18, reality["bootstrap_max_sharpe_95"], width=0.36, label="Bootstrap 95% max", color="#b7c9df")
+    axes[1].set_xticks(positions, reality["asset"])
+    axes[1].set_ylabel("Sharpe")
+    axes[1].set_title("White Reality Check: winner vs data-snooping null")
+    axes[1].legend(fontsize=8)
+    for position, p_value in zip(positions, reality["p_value_max_sharpe"]):
+        axes[1].text(position, max(reality["bootstrap_max_sharpe_95"]) * 1.02, f"p={p_value:.3f}", ha="center", fontsize=9)
+    fig.savefig(output / "robustness.png", dpi=140)
+    plt.close(fig)
+
 
 if __name__ == "__main__":
     main()

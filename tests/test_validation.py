@@ -14,6 +14,16 @@ def test_split_is_chronological():
     assert len(X_test) == 20
 
 
+def test_split_gap_does_not_put_test_return_in_development_target():
+    X = pd.DataFrame({"x": np.arange(100)}, index=pd.date_range("2020-01-01", periods=100))
+    y = pd.Series(np.arange(100) + 1, index=X.index)
+    config = ProjectConfig(search=SearchConfig(test_fraction=0.2, gap=1))
+    X_dev, X_test, y_dev, y_test = split_development_test(X, y, config)
+    assert X_dev.index.max() < X_test.index.min()
+    assert y_dev.index.max() < X_test.index.min()
+    assert y_dev.iloc[-1] != y_test.iloc[0]
+
+
 def test_statistical_helpers_are_paired_and_corrected():
     rng = np.random.default_rng(3)
     actual = pd.Series(np.zeros(100))

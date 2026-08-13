@@ -26,6 +26,7 @@ from .validation import (
     evaluate_locked_test,
     holm_bonferroni,
     select_best_family,
+    split_development_test,
 )
 
 
@@ -46,6 +47,7 @@ def run_experiment(config: ProjectConfig, use_cache: bool = True) -> dict:
                 "n_splits": config.search.n_splits,
                 "validation_window": config.search.validation_window,
                 "gap": config.search.gap,
+                "target_buffer_rows": config.search.gap,
                 "test_fraction": config.search.test_fraction,
             },
             "transaction_cost_bps": config.backtest.transaction_cost_bps,
@@ -64,7 +66,7 @@ def run_experiment(config: ProjectConfig, use_cache: bool = True) -> dict:
     selections = {}
     for asset in ("gold", "silver"):
         X, y = make_targets(features, target=asset)
-        X_dev, X_test, y_dev, y_test = _split(X, y, config.search.test_fraction)
+        X_dev, X_test, y_dev, y_test = split_development_test(X, y, config)
         selection, leaderboard = select_best_family(X_dev, y_dev, config, asset=asset)
         selections[asset] = selection
         datasets[asset] = (X_dev, X_test, y_dev, y_test)
@@ -172,8 +174,3 @@ def run_experiment(config: ProjectConfig, use_cache: bool = True) -> dict:
     Path("reports").mkdir(exist_ok=True)
     Path("reports/experiment_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     return summary
-
-
-def _split(X: pd.DataFrame, y: pd.Series, test_fraction: float):
-    split = max(1, int(len(X) * (1.0 - test_fraction)))
-    return X.iloc[:split], X.iloc[split:], y.iloc[:split], y.iloc[split:]

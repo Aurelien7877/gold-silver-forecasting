@@ -20,15 +20,14 @@ from gold_silver.backtest import backtest_predictions
 from gold_silver.config import load_config
 from gold_silver.data import load_cached_market_data
 from gold_silver.features import build_features, make_targets_for_assets
+from gold_silver.validation import split_development_test
 
 
 def main() -> None:
     config = load_config("configs/default.yaml")
     features = build_features(load_cached_market_data(config), config.features)
     X, targets = make_targets_for_assets(features)
-    split = int(len(X) * (1.0 - config.search.test_fraction))
-    X_dev, X_test = X.iloc[:split], X.iloc[split:]
-    y_dev, y_test = targets.iloc[:split], targets.iloc[split:]
+    X_dev, X_test, y_dev, y_test = split_development_test(X, targets, config)
     splitter = TimeSeriesSplit(
         n_splits=config.search.n_splits,
         test_size=min(config.search.validation_window, len(X_dev) // (config.search.n_splits + 1)),

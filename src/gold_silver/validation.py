@@ -122,7 +122,12 @@ def _run_manual_search(X, y, estimator, combinations, model_family, config):
 
 def split_development_test(X: pd.DataFrame, y: pd.Series, config: ProjectConfig):
     split = max(1, int(len(X) * (1.0 - config.search.test_fraction)))
-    return X.iloc[:split], X.iloc[split:], y.iloc[:split], y.iloc[split:]
+    # y[t] is the return realized on t+1. Drop the final ``gap`` feature
+    # rows from development so no development target can equal a locked-test
+    # return. The test dates themselves remain untouched.
+    gap = max(0, int(config.search.gap))
+    development_end = max(1, split - gap)
+    return X.iloc[:development_end], X.iloc[split:], y.iloc[:development_end], y.iloc[split:]
 
 
 def select_best_family(X_dev: pd.DataFrame, y_dev: pd.Series, config: ProjectConfig, asset: str = "gold") -> tuple[SearchResult, pd.DataFrame]:
