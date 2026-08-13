@@ -597,8 +597,8 @@ def foundation_model_status() -> dict[str, str]:
 def foundation_model_paths() -> dict[str, str]:
     """Optional local checkpoint paths, kept outside the repository."""
     return {
-        "chronos": os.environ.get("GOLD_SILVER_CHRONOS_PATH", "amazon/chronos-2"),
-        "timesfm": os.environ.get("GOLD_SILVER_TIMESFM_PATH", "google/timesfm-2.5-200m-pytorch"),
+        "chronos": os.environ.get("GOLD_SILVER_CHRONOS_PATH") or "amazon/chronos-2",
+        "timesfm": os.environ.get("GOLD_SILVER_TIMESFM_PATH") or "google/timesfm-2.5-200m-pytorch",
     }
 
 

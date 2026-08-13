@@ -8,7 +8,7 @@ Reproducible research for next-day (`J+1`) Gold and Silver log-return forecastin
 - Separate Gold and Silver models with a locked final test period.
 - Tabular models: Ridge, ElasticNet, directional Logistic Regression, ExtraTrees and HistGradientBoosting.
 - Lightweight causal TSMixer, PatchTST-style and TimeMixer-style models for local CPU/MPS experiments.
-- Optional real foundation-model adapters for Chronos-2 and TimesFM 2.5.
+- Optional real foundation-model adapters for Chronos-Bolt Tiny and TimesFM 2.5.
 - Walk-forward model selection, transaction-cost backtests, Diebold–Mariano tests, block bootstrap and Holm–Bonferroni correction.
 - English notebooks with executable plots and a small set of tracked report figures.
 - GitHub Actions tests on macOS 14 / Python 3.11.
@@ -66,7 +66,7 @@ For the foundation-model benchmark using local checkpoints:
 ```bash
 python scripts/train.py \
   --include-foundation-models \
-  --chronos-path /path/to/chronos-2 \
+  --chronos-path /path/to/chronos-bolt-tiny \
   --timesfm-path /path/to/timesfm-2.5-200m-pytorch
 ```
 
@@ -75,7 +75,7 @@ The checkpoint adapters follow the official [Chronos implementation](https://git
 To refresh only the optional foundation comparison without rerunning every local model:
 
 ```bash
-GOLD_SILVER_CHRONOS_PATH=/path/to/chronos-2 \
+GOLD_SILVER_CHRONOS_PATH=/path/to/chronos-bolt-tiny \
 GOLD_SILVER_TIMESFM_PATH=/path/to/timesfm-2.5-200m-pytorch \
 make foundation-benchmark
 ```
@@ -141,7 +141,7 @@ Gold test comparison:
 | TimesFM 2.5 | 0.551 |
 | HistGradientBoosting | 0.357 |
 | Tree blend | 0.269 |
-| Chronos-2 | -0.412 |
+| Chronos-Bolt Tiny | -0.412 |
 | TimeMixer-style | -0.387 |
 | PatchTST-style | -1.190 |
 
@@ -159,9 +159,11 @@ Silver test comparison:
 | XGBoost | 0.738 |
 | Tree blend | 0.630 |
 | TimesFM 2.5 | -0.038 |
-| Chronos-2 | -0.269 |
+| Chronos-Bolt Tiny | -0.269 |
 
 The directional Silver model is selected from validation and improves the locked-test Sharpe from `0.904` to `1.242` relative to the previous HistGradientBoosting winner. The higher Gold ExtraTrees test Sharpe is still not selected after the fact: every model decision is made from validation only.
+
+Silver remains cost-sensitive: its Sharpe falls from `1.242` at 10 bps to `0.695` at 20 bps, while fixed-parameter rolling-origin Sharpes range from `−0.794` to `0.994`. The signal is therefore promising but regime-sensitive and turnover-heavy, not deployment-ready.
 
 We also probed one shared multi-output ExtraTrees model. It reached validation Sharpe 0.323 for Gold and −0.571 for Silver, so the shared model is rejected by the same validation rule rather than being forced into production.
 
