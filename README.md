@@ -1,6 +1,11 @@
 # Gold & Silver Forecasting
 
-![Gold and Silver forecasting](docs/figures/hero_gold_silver.png)
+<p align="center">
+  <img src="docs/figures/mascot_gold.png" alt="Cute Gold forecasting mascot" width="42%" />
+  <img src="docs/figures/mascot_silver.png" alt="Cute Silver forecasting mascot" width="42%" />
+</p>
+
+<p align="center"><em>Two models, two metals, one reproducible forecasting protocol.</em></p>
 
 Research-grade, reproducible machine learning for one-day-ahead Gold (`GC=F`) and Silver (`SI=F`) futures. The repository compares causal feature models with Chronos-2 and TimesFM 2.5 under the same walk-forward splits, horizon and transaction costs.
 
