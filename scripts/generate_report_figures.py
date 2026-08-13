@@ -17,6 +17,26 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 
+def _load_oos_predictions(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path, index_col=0)
+    frame.index = pd.to_datetime(frame.index)
+    return frame.sort_index()
+
+
+def _selected_family(processed: Path, asset: str) -> str:
+    comparison = pd.read_csv(processed / f"{asset}_test_comparison.csv")
+    return str(comparison.loc[comparison["selected"], "family"].iloc[0])
+
+
+def _format_time_axis(axis: plt.Axes) -> None:
+    axis.grid(axis="y", color="#d9dee7", linewidth=0.6, alpha=0.8)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+    axis.spines["left"].set_color("#aeb7c4")
+    axis.spines["bottom"].set_color("#aeb7c4")
+    axis.tick_params(colors="#4b5563", labelsize=9)
+
+
 def main() -> None:
     output = ROOT / "docs/figures"
     output.mkdir(parents=True, exist_ok=True)
@@ -36,6 +56,92 @@ def main() -> None:
     ax.figure.tight_layout()
     ax.figure.savefig(output / "normalized_prices.png", dpi=140)
     plt.close(ax.figure)
+
+    # A README-ready overview connecting the data, the locked test period and
+    # the selected out-of-sample forecasts. Silver is a directional classifier,
+    # so its panel shows a centered direction score rather than return size.
+    gold_oos = _load_oos_predictions(processed / "gold_oos_predictions.csv")
+    silver_oos = _load_oos_predictions(processed / "silver_oos_predictions.csv")
+    gold_family = _selected_family(processed, "gold")
+    silver_family = _selected_family(processed, "silver")
+    test_start = min(gold_oos.index.min(), silver_oos.index.min())
+
+    fig = plt.figure(figsize=(15, 10), facecolor="#fbfcfe")
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.05, 1], hspace=0.34, wspace=0.24)
+    price_axis = fig.add_subplot(grid[0, :])
+    gold_axis = fig.add_subplot(grid[1, 0])
+    silver_axis = fig.add_subplot(grid[1, 1])
+    for axis in (price_axis, gold_axis, silver_axis):
+        axis.set_facecolor("#fbfcfe")
+
+    price_axis.plot(normalized.index, normalized["gold"], color="#c78900", linewidth=1.5, label="Gold")
+    price_axis.plot(normalized.index, normalized["silver"], color="#52606d", linewidth=1.5, label="Silver")
+    price_axis.axvspan(test_start, normalized.index.max(), color="#6c8ebf", alpha=0.12, label="Locked test")
+    price_axis.set_title("Market context and forecast window", loc="left", fontsize=13, fontweight="bold", color="#17202a")
+    price_axis.set_ylabel("Normalized close (common start = 100)")
+    price_axis.legend(frameon=False, ncol=3, loc="upper left")
+    price_axis.annotate(
+        f"Locked test starts {test_start:%Y-%m-%d}",
+        xy=(test_start, price_axis.get_ylim()[1]),
+        xytext=(8, -8),
+        textcoords="offset points",
+        va="top",
+        fontsize=9,
+        color="#496a9b",
+    )
+    _format_time_axis(price_axis)
+
+    window = 20
+    gold_actual = gold_oos["realized_return"].rolling(window).mean()
+    gold_prediction = gold_oos[gold_family].rolling(window).mean()
+    gold_axis.plot(gold_actual.index, gold_actual, color="#17202a", linewidth=1.35, label="Realized return")
+    gold_axis.plot(gold_prediction.index, gold_prediction, color="#c78900", linewidth=1.35, label="Model prediction")
+    gold_axis.axhline(0, color="#8b95a1", linewidth=0.7)
+    gold_axis.set_title(f"Gold — {gold_family} forecast", loc="left", fontsize=12, fontweight="bold", color="#17202a")
+    gold_axis.set_ylabel("20-day rolling log return")
+    gold_axis.legend(frameon=False, fontsize=8, loc="upper left")
+    _format_time_axis(gold_axis)
+
+    silver_actual = silver_oos["realized_return"].rolling(window).mean()
+    silver_score = silver_oos[silver_family].rolling(window).mean()
+    silver_axis.plot(silver_actual.index, silver_actual, color="#17202a", linewidth=1.35, label="Realized return")
+    silver_axis.axhline(0, color="#8b95a1", linewidth=0.7)
+    silver_axis.set_title(f"Silver — {silver_family} forecast", loc="left", fontsize=12, fontweight="bold", color="#17202a")
+    silver_axis.set_ylabel("20-day rolling realized log return")
+    score_axis = silver_axis.twinx()
+    score_axis.plot(silver_score.index, silver_score, color="#52606d", linewidth=1.35, label="Direction score")
+    score_axis.set_ylabel("Rolling direction score", color="#52606d")
+    score_axis.tick_params(axis="y", colors="#52606d", labelsize=9)
+    score_axis.spines["top"].set_visible(False)
+    score_axis.spines["right"].set_color("#aeb7c4")
+    silver_axis.legend(
+        [silver_axis.lines[0], score_axis.lines[0]],
+        ["Realized return", "Direction score"],
+        frameon=False,
+        fontsize=8,
+        loc="upper left",
+        bbox_to_anchor=(0, 0.90),
+    )
+    _format_time_axis(silver_axis)
+
+    fig.suptitle(
+        "Gold/Silver next-day forecasting — the out-of-sample story",
+        fontsize=17,
+        fontweight="bold",
+        color="#17202a",
+        x=0.06,
+        ha="left",
+        y=0.985,
+    )
+    fig.text(
+        0.06,
+        0.015,
+        "Shaded region = locked test period. Bottom panels use 20-day rolling averages; Silver is evaluated as a directional signal, not a return-magnitude forecast.",
+        fontsize=8.5,
+        color="#5b6572",
+    )
+    fig.savefig(output / "forecast_story.png", dpi=170, facecolor=fig.get_facecolor(), bbox_inches="tight")
+    plt.close(fig)
 
     gold = pd.read_csv(processed / "gold_test_comparison.csv")
     silver = pd.read_csv(processed / "silver_test_comparison.csv")

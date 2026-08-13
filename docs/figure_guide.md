@@ -4,6 +4,7 @@ Every plot in the tracked figures and notebooks has a short interpretation below
 
 ## Tracked report figures
 
+- **`forecast_story.png`** — The top panel connects normalized prices to the locked test window. The bottom panels show Gold's selected return forecast and Silver's selected directional score against realized returns, using 20-observation rolling averages.
 - **`normalized_prices.png`** — Both prices are rebased to 100 on the first common date, so co-movement can be seen without confusing dollar units. Similar trends do not imply that daily returns are interchangeable.
 - **`model_benchmark.png`** — Bars compare net locked-test Sharpe across the evaluated families, including the shared global iTransformer probe, for Gold and Silver. This is a diagnostic comparison after validation selection, not permission to choose the highest test bar retrospectively.
 - **`prediction_diagnostics.png`** — The left panels smooth forecasts and realized returns over 20 days; the right panels show one-step forecast-versus-outcome pairs. The scatter is clipped visually at the central 99%, while reported metrics use all dates.

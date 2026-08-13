@@ -194,6 +194,10 @@ The White Reality Check p-values are 0.090 for Gold and 0.037 for Silver across 
 
 ## Visual research summary
 
+![Gold and Silver forecast story](docs/figures/forecast_story.png)
+
+This overview connects the full price history to the locked test window and the selected models' out-of-sample forecasts. Gold is shown as a return forecast; Silver is shown as a direction score because its selected model is a classifier.
+
 ![Normalized Gold and Silver prices](docs/figures/normalized_prices.png)
 
 This chart rescales both prices to 100 at the common start date, making co-movement visible despite different dollar prices. The return panel and rolling correlation panel show that similar long-run direction does not imply identical daily returns.
