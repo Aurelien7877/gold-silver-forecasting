@@ -10,18 +10,19 @@ the average of the two validation Sharpes.
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import TimeSeriesSplit
 
-from gold_silver.backtest import backtest_predictions
+from gold_silver.backtest import backtest_predictions, paired_bootstrap_sharpe_difference
 from gold_silver.config import load_config
 from gold_silver.data import load_cached_market_data
 from gold_silver.features import build_features, make_targets_for_assets
 from gold_silver.models import GlobalITransformerRegressor
-from gold_silver.validation import split_development_test
+from gold_silver.validation import diebold_mariano_test, split_development_test
 
 
 def _fold_splitter(X, config):
@@ -90,6 +91,8 @@ def main() -> None:
     validation.to_csv(output / "global_model_validation.csv", index=False)
 
     rows = []
+    statistical_rows = []
+    summary = json.loads(Path("reports/experiment_summary.json").read_text())
     for asset, column_index in (("gold", 0), ("silver", 1)):
         predictions = pd.Series(test_predictions[:, column_index], index=X_test.index)
         report = backtest_predictions(predictions, y_test[asset], config.backtest)
@@ -105,7 +108,32 @@ def main() -> None:
         pd.DataFrame(
             {"realized_return": y_test[asset], "global_itransformer": predictions}
         ).to_csv(output / f"{asset}_global_predictions.csv")
+        local_predictions = pd.read_csv(
+            output / f"{asset}_oos_predictions.csv", index_col=0, parse_dates=True
+        )
+        local_winner = summary["assets"][asset]["winner"]
+        local_prediction = local_predictions[local_winner].reindex(X_test.index)
+        local_report = backtest_predictions(
+            local_prediction, y_test[asset], config.backtest
+        )
+        dm = diebold_mariano_test(y_test[asset], local_prediction, predictions)
+        paired = paired_bootstrap_sharpe_difference(
+            local_report.equity["net_return"], report.equity["net_return"],
+            annualization=config.backtest.annualization,
+        )
+        statistical_rows.append(
+            {
+                "asset": asset,
+                "local_winner": local_winner,
+                "global_model": "global_itransformer",
+                "local_sharpe": local_report.metrics["sharpe"],
+                "global_sharpe": report.metrics["sharpe"],
+                **dm,
+                **paired,
+            }
+        )
     pd.DataFrame(rows).to_csv(output / "global_model_comparison.csv", index=False)
+    pd.DataFrame(statistical_rows).to_csv(output / "global_model_statistical_tests.csv", index=False)
 
 
 if __name__ == "__main__":

@@ -172,6 +172,8 @@ Silver remains cost-sensitive: its Sharpe falls from `1.242` at 10 bps to `0.695
 
 We tested two shared models. Multi-output ExtraTrees reached validation Sharpe `0.323` for Gold and `−0.571` for Silver; the compact global iTransformer reached `−0.443` and `−0.961`, with a joint validation Sharpe of `−0.702`. Both are rejected by the same validation rule, so the project keeps separate Gold and Silver models rather than forcing a shared architecture.
 
+On the locked dates, the paired comparison gives a Gold DM p-value of `0.057` and a Silver p-value below `10⁻⁶⁷`. Gold’s local model has slightly lower squared error; Silver’s global model has lower squared error, yet the local strategy still has higher net Sharpe by `0.623`. This shows why forecast loss and tradable performance must both be reported, not a universal theorem about global architectures.
+
 The foundation-model comparison is deliberately separate because Chronos and TimesFM receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. Both foundation models are nevertheless evaluated on the same 970 locked-test dates, one-day horizon and 10 bps costs.
 
 The White Reality Check p-values are 0.131 for Gold and 0.035 for Silver across 14 local candidates, including the directional and global models. Silver clears this particular 5% candidate-aware null, but its rolling-origin results still include negative historical windows and the external architecture comparison is not exhaustive; this is evidence for continued research, not a universal SOTA or financial-deployment claim.
@@ -231,6 +233,7 @@ The `make robustness` command regenerates the Reality Check, regime tables and r
 - `data/processed/*_foundation_predictions.csv`: optional Chronos/TimesFM forecasts on the same locked dates, used by the expanded Reality Check when available.
 - `data/processed/global_model_validation.csv`: shared-model configurations selected using the joint validation Sharpe.
 - `data/processed/*_global_predictions.csv`: shared global-model predictions on the locked test dates.
+- `data/processed/global_model_statistical_tests.csv`: paired DM and block-bootstrap comparisons of the shared model against each local winner.
 - `data/processed/*_statistical_tests.csv`: DM tests, Holm-adjusted p-values and paired Sharpe bootstrap intervals.
 - `data/processed/*_reality_check.csv`: candidate-aware White Reality Check against data-snooping.
 - `data/processed/*_regime_performance.csv`: descriptive direction, volatility and calendar regime tables.
