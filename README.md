@@ -1,8 +1,8 @@
 # Gold & Silver Forecasting
 
 <p align="center">
-  <img src="docs/figures/mascot_gold.png" alt="Cute Gold forecasting mascot" width="42%" />
-  <img src="docs/figures/mascot_silver.png" alt="Cute Silver forecasting mascot" width="42%" />
+  <img src="docs/figures/mascot_gold.png" alt="Aurum-1D Gold research mascot" width="25%" />
+  <img src="docs/figures/mascot_silver.png" alt="Argent-1D Silver research mascot" width="25%" />
 </p>
 
 <p align="center"><em>Two models, two metals, one reproducible forecasting protocol.</em></p>
