@@ -19,6 +19,14 @@ DISPLAY_NAMES = {
     "timesfm_covariates": "TimesFM 2.5 (causal covariates)",
 }
 
+# Hub-friendly slugs: publisher/family-task-asset-model-family. The namespace
+# is intentionally left configurable because GitHub and Hugging Face usernames
+# do not have to match.
+RECOMMENDED_REPO_NAMES = {
+    "gold": "gold-next-day-returns-extratrees",
+    "silver": "silver-next-day-direction-logistic",
+}
+
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -46,13 +54,56 @@ def _metric(value: object, digits: int = 3) -> str:
         return "n/a"
 
 
+def _quickstart(asset: str) -> str:
+    if asset == "gold":
+        return '''```python
+import json
+from pathlib import Path
+
+import joblib
+
+ARTIFACT_DIR = Path(".")
+estimator = joblib.load(ARTIFACT_DIR / "estimator.joblib")
+schema = json.loads((ARTIFACT_DIR / "feature_schema.json").read_text())
+
+# Build this one-row DataFrame with the causal feature builder in the source
+# repository. It must contain exactly the columns listed in schema.
+X_next = build_causal_feature_row(raw_history)[schema["feature_columns"]]
+next_day_log_return = float(estimator.predict(X_next)[0])
+print(next_day_log_return)
+```'''
+    return '''```python
+import json
+from pathlib import Path
+
+import joblib
+
+ARTIFACT_DIR = Path(".")
+estimator = joblib.load(ARTIFACT_DIR / "estimator.joblib")
+schema = json.loads((ARTIFACT_DIR / "feature_schema.json").read_text())
+
+# Build this one-row DataFrame with the causal feature builder in the source
+# repository. It must contain exactly the columns listed in schema.
+X_next = build_causal_feature_row(raw_history)[schema["feature_columns"]]
+direction_score = float(estimator.predict_proba(X_next)[0, 1] - 0.5)
+position = 1 if direction_score > 0 else -1 if direction_score < 0 else 0
+print({"direction_score": direction_score, "position": position})
+```'''
+
+
 def _card(asset: str, local: dict, validation: float, foundation, stats, reality, manifest: dict) -> str:
     title = "Gold" if asset == "gold" else "Silver"
     model_name = "ExtraTrees" if asset == "gold" else "Directional Logistic Regression"
+    repo_name = RECOMMENDED_REPO_NAMES[asset]
     target_note = (
         "The estimator predicts the next-day Gold log return."
         if asset == "gold"
         else "The estimator predicts next-day Silver direction; its output is a centered probability score, not a calibrated return magnitude."
+    )
+    output_note = (
+        "Gold outputs a return estimate."
+        if asset == "gold"
+        else "Silver outputs `P(up) - 0.5`; positive values indicate an upward directional score and negative values a downward score. This is not a calibrated return forecast."
     )
     foundation_lines = []
     for row in foundation.to_dict(orient="records"):
@@ -73,6 +124,7 @@ def _card(asset: str, local: dict, validation: float, foundation, stats, reality
     )
     test_return = local["cumulative_return"]
     return f'''---
+license: mit
 library_name: scikit-learn
 pipeline_tag: time-series-forecasting
 tags:
@@ -80,16 +132,37 @@ tags:
 - finance
 - commodities
 - {asset}
+- next-day-forecasting
+- research-only
 private: true
 ---
 
-# {title} next-day forecasting model
+# {title} next-day returns — {model_name}
 
-This private model card contains the selected **{model_name}** estimator for one-day-ahead research on {title}. {target_note}
+> **TL;DR** — A compact, causal, one-day-ahead {title} research model selected by expanding walk-forward validation. The recommended Hub slug is `{repo_name}`. {target_note}
 
 > Research and education only. This model is not financial advice, is not a trading recommendation and has no performance guarantee.
 
-## What is included
+## Quick facts
+
+| Field | Value |
+|---|---|
+| Asset | {title} futures (`{'GC=F' if asset == 'gold' else 'SI=F'}`) |
+| Horizon | Next trading day (`J+1`) |
+| Task | {'Regression on log return' if asset == 'gold' else 'Directional classification score'} |
+| Selected estimator | {model_name} |
+| Input representation | 144 causal engineered features |
+| Selection | Five expanding walk-forward folds, `gap=1` |
+| Locked test | Final 20% of common Gold/Silver dates |
+| Backtest cost | 10 bps per unit of turnover |
+
+## Model details
+
+The model is fitted on information available at date `t` and targets the next-day log return. Features include lagged returns, volatility, momentum, moving-average gaps, drawdown, volume, Gold/Silver cross-asset statistics and market covariates. No feature is allowed to use a future timestamp.
+
+{output_note}
+
+## Files
 
 - `estimator.joblib`: the fitted {model_name} estimator.
 - `feature_schema.json`: exact input column order and target definition.
@@ -98,7 +171,7 @@ This private model card contains the selected **{model_name}** estimator for one
 
 The payload contains no raw Yahoo Finance/FRED data, Hugging Face token or intermediate checkpoint. The estimator was fitted with code revision `{_short_commit()}`.
 
-## Result under the repository protocol
+## Evaluation under the repository protocol
 
 | Metric | Value |
 |---|---:|
@@ -112,7 +185,7 @@ The payload contains no raw Yahoo Finance/FRED data, Hugging Face token or inter
 
 The final 20% of common Gold/Silver dates is a locked test and was not used to select the model. The backtest maps the signal to `-1`, `0` or `+1`, applies it to the next realized return and charges 10 basis points per unit of turnover.
 
-## Foundation-model audit
+## External foundation-model audit
 
 These external models were evaluated on the same dates, one-day horizon and costs. Their information representation differs: the local model receives engineered causal features, while the foundation tracks receive only their stated univariate or past-only covariate context.
 
@@ -134,6 +207,12 @@ DM compares forecast loss on the same locked dates; `Holm p` corrects the four f
 
 The candidate-aware White Reality Check for the full local-plus-foundation universe is `{_metric(reality['p_value_max_sharpe'], 3)}` for {title}. This is a conditional bootstrap p-value, not a probability that the model will be profitable.
 
+## Reproduce inference
+
+The payload intentionally does not include raw market data. Construct the latest causal feature row with the source repository, preserve the schema order, then load the estimator:
+
+{_quickstart(asset)}
+
 ## Data and reproducibility
 
 - Source snapshot: Yahoo Finance tickers in `data/raw/manifest.json`.
@@ -142,7 +221,15 @@ The candidate-aware White Reality Check for the full local-plus-foundation unive
 - Feature rule: information available at or before `t` only.
 - Python: 3.11; see the source repository for installation and inference code.
 
+## Intended use and limitations
+
+Intended for local research, reproducible benchmarking and educational experiments on daily Gold/Silver futures. It is not intended for automated execution, portfolio allocation, risk management or live financial decisions. Results are historical, regime-dependent and sensitive to data revisions, slippage, liquidity, feature availability and model-selection bias. The card's “best” language is limited to this repository's tested candidate set and protocol; it is not a universal SOTA claim.
+
+## Citation and source code
+
 Source repository: https://github.com/Aurelien7877/gold-silver-forecasting
+
+Please cite the repository and the upstream data/model documentation when reusing this artifact. The exact code revision is recorded in `metrics.json`.
 '''
 
 
@@ -209,8 +296,13 @@ def main() -> None:
     assets = ("gold", "silver") if args.asset == "all" else (args.asset,)
     for asset in assets:
         export_asset(asset, Path(args.bundle), Path(args.output))
-    print("Upload privately with: hf upload <namespace>/<repo> hf_export/gold --private")
-    print("and: hf upload <namespace>/<repo> hf_export/silver --private")
+    print(
+        "Recommended private Hub slugs: "
+        f"<namespace>/{RECOMMENDED_REPO_NAMES['gold']} and "
+        f"<namespace>/{RECOMMENDED_REPO_NAMES['silver']}"
+    )
+    print("Upload privately with: hf upload <namespace>/gold-next-day-returns-extratrees hf_export/gold --private")
+    print("and: hf upload <namespace>/silver-next-day-direction-logistic hf_export/silver --private")
 
 
 if __name__ == "__main__":

@@ -99,7 +99,7 @@ The export script creates separate Gold and Silver model-card directories. Each 
 python scripts/export_hf.py --asset all --output hf_export
 ```
 
-The cards use “best local model under the stated protocol”, not universal SOTA, and clearly label the research-only limitation. Upload only after reviewing the generated cards; create each Hub repository as private.
+Recommended private-by-default Hub slugs are `gold-next-day-returns-extratrees` and `silver-next-day-direction-logistic`. The cards follow conventions observed in widely used time-series releases: searchable names, YAML task/library/license metadata, a TL;DR, quick facts, benchmark tables, a copy-paste inference path, citations and explicit limitations. They use “best local model under the stated protocol”, not universal SOTA. Upload only after reviewing the generated cards; create each Hub repository as private. The pattern review is documented in [`docs/huggingface_card_patterns.md`](docs/huggingface_card_patterns.md).
 
 ## Repository map
 
