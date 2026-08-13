@@ -68,6 +68,7 @@ For the foundation-model benchmark using local checkpoints:
 python scripts/train.py \
   --include-foundation-models \
   --chronos-path /path/to/chronos-bolt-tiny \
+  --chronos2-covariates-path /path/to/chronos-2 \
   --timesfm-path /path/to/timesfm-2.5-200m-pytorch
 ```
 
@@ -77,6 +78,7 @@ To refresh only the optional foundation comparison without rerunning every local
 
 ```bash
 GOLD_SILVER_CHRONOS_PATH=/path/to/chronos-bolt-tiny \
+GOLD_SILVER_CHRONOS2_COVARIATES_PATH=/path/to/chronos-2 \
 GOLD_SILVER_TIMESFM_PATH=/path/to/timesfm-2.5-200m-pytorch \
 make foundation-benchmark
 ```
@@ -180,7 +182,7 @@ We tested two shared models. Multi-output ExtraTrees reached validation Sharpe `
 
 On the locked dates, the paired comparison gives a Gold DM p-value of `0.017` and a Silver p-value below `10⁻⁶⁷`. Gold’s local model has lower squared error and higher net Sharpe by `1.952`; Silver’s global model has lower squared error, yet the local strategy still has higher net Sharpe by `0.623`. This shows why forecast loss and tradable performance must both be reported, not a universal theorem about global architectures.
 
-The foundation-model comparison is deliberately separate because Chronos and TimesFM receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. Both foundation models are nevertheless evaluated on the same 970 locked-test dates, one-day horizon and 10 bps costs.
+The foundation-model comparison is deliberately separate because the cached Chronos and TimesFM tracks receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. The optional Chronos-2 covariate track receives a small, explicitly listed set of past-only Gold/Silver-related covariates. Every track uses the same 970 locked-test dates, one-day horizon and 10 bps costs.
 
 The White Reality Check p-values are 0.090 for Gold and 0.021 for Silver across 14 candidates, including the directional, foundation and global-model predictions available in the cache. Silver clears this particular 5% candidate-aware null; Gold does not. Both assets still show regime sensitivity, and the external architecture comparison is not exhaustive, so this is evidence for continued research rather than a universal SOTA or financial-deployment claim.
 
@@ -189,12 +191,12 @@ The White Reality Check p-values are 0.090 for Gold and 0.021 for Silver across 
 - **PatchTST** uses temporal patches as Transformer tokens and shared channel weights; our compact implementation tests the inductive bias locally, but it is not the full published training recipe. See the [original PatchTST paper](https://arxiv.org/abs/2211.14730).
 - **TimeMixer** separates fine and coarse temporal scales with MLP mixing; our version is a Mac-sized approximation of its multiscale idea. See the [TimeMixer paper](https://arxiv.org/abs/2405.14616).
 - **SAMformer** adds sharpness-aware optimization to a Transformer and is a stronger candidate for a future experiment, but its published benchmarks target long-horizon datasets rather than this one-day financial-return task. See [SAMformer](https://arxiv.org/abs/2402.10198).
-- **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs, unlike the univariate Chronos result currently cached here. Its official 120M checkpoint is the next external benchmark; it must be run with the same dates, horizon, costs and tests before any SOTA claim. See [Chronos-2](https://arxiv.org/abs/2510.15821) and the [official implementation](https://github.com/amazon-science/chronos-forecasting).
+- **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs. The repository now contains a leakage-safe adapter and same-protocol benchmark entry for its official 120M checkpoint; the covariate result is still pending until the complete weights are downloaded locally. See [Chronos-2](https://arxiv.org/abs/2510.15821) and the [official implementation](https://github.com/amazon-science/chronos-forecasting).
 - **iTransformer** inverts the time/variable layout so attention models dependencies between variable tokens; the new global benchmark applies this idea to the 144 causal feature channels and two metal targets. See the [iTransformer paper](https://arxiv.org/abs/2310.06625).
 - **Directional Logistic Regression** is not claimed as a universal SOTA architecture; it is a task-aligned candidate because the trading layer ultimately uses only the sign of the forecast. It wins Silver validation in the current data snapshot, while Gold now selects ExtraTrees after the expanded grid search.
 - A recent financial-return study finds that foundation models can win task rankings while gains over random-walk benchmarks remain sparse; this supports our requirement for equalized windows, costs and multiple-comparison tests. See [Pretrained Time-Series Foundation Models for Financial Return Forecasting](https://arxiv.org/abs/2606.27100).
 
-The complete literature comparison and the exact tested/not-tested boundary are documented in [docs/benchmark_review.md](docs/benchmark_review.md). In short, the current results are the best local results found under this repository's protocol, not universal SOTA: Chronos-2 covariate forecasting remains an explicit pending benchmark because its checkpoint was not available in the local cache.
+The complete literature comparison and the exact tested/not-tested boundary are documented in [docs/benchmark_review.md](docs/benchmark_review.md). In short, the current results are the best local results found under this repository's protocol, not universal SOTA: Chronos-2 covariate forecasting is implemented but remains an explicit pending benchmark because its complete checkpoint was not available locally.
 
 ## Visual research summary
 

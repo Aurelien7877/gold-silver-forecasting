@@ -29,9 +29,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--chronos-path", required=True)
+    parser.add_argument(
+        "--chronos2-covariates-path",
+        default=None,
+        help="Optional local Chronos-2 snapshot; providing it enables the covariate-aware track.",
+    )
     parser.add_argument("--timesfm-path", required=True)
     args = parser.parse_args()
     os.environ["GOLD_SILVER_CHRONOS_PATH"] = args.chronos_path
+    if args.chronos2_covariates_path:
+        os.environ["GOLD_SILVER_CHRONOS2_COVARIATES_PATH"] = args.chronos2_covariates_path
     os.environ["GOLD_SILVER_TIMESFM_PATH"] = args.timesfm_path
 
     config = load_config(args.config)
@@ -46,7 +53,10 @@ def main() -> None:
         X_dev, X_test, y_dev, y_test = split_development_test(X, y, config)
         rows = []
         prediction_frame = pd.DataFrame({"realized_return": y_test})
-        for family in ("chronos", "timesfm"):
+        families = ["chronos", "timesfm"]
+        if args.chronos2_covariates_path:
+            families.insert(1, "chronos2_covariates")
+        for family in families:
             selection = run_walk_forward_search(X_dev, y_dev, family, config, asset=asset)
             predictions, _ = evaluate_locked_test(
                 selection, X_dev, y_dev, X_test, y_test, config

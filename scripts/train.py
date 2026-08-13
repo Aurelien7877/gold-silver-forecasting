@@ -20,6 +20,11 @@ def main() -> None:
         help="Use installed Chronos/TimesFM adapters; model weights may be downloaded.",
     )
     parser.add_argument("--chronos-path", default=None, help="Local Chronos checkpoint directory.")
+    parser.add_argument(
+        "--chronos2-covariates-path",
+        default=None,
+        help="Local Chronos-2 checkpoint for the covariate-aware adapter.",
+    )
     parser.add_argument("--timesfm-path", default=None, help="Local TimesFM checkpoint directory.")
     args = parser.parse_args()
     config = load_config(args.config)
@@ -29,6 +34,10 @@ def main() -> None:
         import os
 
         os.environ["GOLD_SILVER_CHRONOS_PATH"] = args.chronos_path
+    if args.chronos2_covariates_path:
+        import os
+
+        os.environ["GOLD_SILVER_CHRONOS2_COVARIATES_PATH"] = args.chronos2_covariates_path
     if args.timesfm_path:
         import os
 

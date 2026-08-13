@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor
 from sklearn.linear_model import ElasticNet, LogisticRegression, Ridge
@@ -732,6 +733,117 @@ class ChronosRegressor(_FoundationRegressor):
         return quantiles.astype(float).tolist()
 
 
+class Chronos2CovariateRegressor(_FoundationRegressor):
+    """Chronos-2 adapter using past-only, economically related covariates.
+
+    Chronos-2's dataframe interface expects regular timestamps.  Our market
+    observations are trading-day rows with holidays removed, so each context
+    receives a synthetic observation counter.  The order is unchanged and no
+    calendar information is invented; the original calendar features remain
+    available as explicit covariates when selected.
+
+    The adapter deliberately uses a small related set rather than all
+    engineered columns.  This keeps the experiment interpretable and avoids
+    allowing unrelated external series to dominate a short financial context.
+    """
+
+    package_name = "chronos"
+    model_id = "amazon/chronos-2"
+    _pipeline_cache: dict[str, Any] = {}
+
+    _RELATED_COLUMNS = (
+        "gold_return_current",
+        "silver_return_current",
+        "gold_silver_log_ratio",
+        "gold_silver_ratio_change",
+        "gold_intraday_return",
+        "silver_intraday_return",
+        "gold_range_log",
+        "silver_range_log",
+        "gold_close_location",
+        "silver_close_location",
+        "gold_volatility_20",
+        "silver_volatility_20",
+        "dxy_adj_close_change",
+        "vix_adj_close_change",
+        "sp500_adj_close_change",
+        "oil_adj_close_change",
+        "copper_adj_close_change",
+        "tnx_adj_close_change",
+        "btc_adj_close_change",
+    )
+
+    def fit(self, X, y):
+        self.current_column_ = f"{self.asset}_return_current"
+        if self.current_column_ not in X:
+            raise ValueError(f"Missing {self.current_column_} for Chronos-2 adapter.")
+        self.covariate_columns_ = [
+            column for column in self._RELATED_COLUMNS if column in X.columns
+        ]
+        if self.current_column_ not in self.covariate_columns_:
+            self.covariate_columns_.insert(0, self.current_column_)
+        self.history_frame_ = X[self.covariate_columns_].astype(float).copy()
+        # ``y`` is intentionally not stored: it is the t+1 return and is not
+        # available when the t row is forecast.
+        self._load_model()
+        return self
+
+    def _load_model(self):
+        try:
+            import torch
+            from chronos import Chronos2Pipeline
+        except ImportError as exc:  # pragma: no cover - optional runtime
+            raise ImportError("Chronos2CovariateRegressor requires chronos-forecasting.") from exc
+        self._validate_local_checkpoint()
+        if self.model_id not in self._pipeline_cache:
+            local_only = os.path.isdir(self.model_id)
+            self._pipeline_cache[self.model_id] = Chronos2Pipeline.from_pretrained(
+                self.model_id,
+                device_map="cpu",
+                torch_dtype=torch.float32,
+                local_files_only=local_only,
+            )
+        self.pipeline_ = self._pipeline_cache[self.model_id]
+
+    def _build_context_dataframe(self, X) -> pd.DataFrame:
+        """Create one regular long-format Chronos context per forecast origin."""
+        incoming = X[self.covariate_columns_].astype(float)
+        observed = self.history_frame_.copy()
+        frames = []
+        for origin_number, (_, row) in enumerate(incoming.iterrows()):
+            observed = pd.concat([observed, row.to_frame().T], axis=0)
+            context = observed.tail(self.lookback).reset_index(drop=True)
+            context.insert(0, "timestamp", pd.date_range("2000-01-01", periods=len(context), freq="D"))
+            context.insert(0, "item_id", f"origin_{origin_number}")
+            context = context.rename(columns={self.current_column_: "target"})
+            frames.append(context)
+        if not frames:
+            return pd.DataFrame(columns=["item_id", "timestamp", "target", *self.covariate_columns_])
+        return pd.concat(frames, ignore_index=True)
+
+    def _forecast_many(self, contexts: list[np.ndarray]) -> list[float]:  # pragma: no cover - unused API path
+        raise NotImplementedError("Chronos2CovariateRegressor forecasts from dataframe contexts.")
+
+    def predict(self, X):
+        context_df = self._build_context_dataframe(X)
+        if context_df.empty:
+            return np.asarray([], dtype=float)
+        forecasts = self.pipeline_.predict_df(
+            context_df,
+            prediction_length=1,
+            quantile_levels=[0.5],
+            context_length=self.lookback,
+            batch_size=64,
+            cross_learning=False,
+            freq="D",
+        )
+        by_item = forecasts.set_index("item_id")["predictions"]
+        return np.asarray(
+            [float(by_item.loc[f"origin_{number}"]) for number in range(len(X))],
+            dtype=float,
+        )
+
+
 class TimesFMRegressor(_FoundationRegressor):
     package_name = "timesfm"
     model_id = "google/timesfm-2.5-200m-pytorch"
@@ -778,6 +890,7 @@ def foundation_model_paths() -> dict[str, str]:
     """Optional local checkpoint paths, kept outside the repository."""
     return {
         "chronos": os.environ.get("GOLD_SILVER_CHRONOS_PATH") or "amazon/chronos-2",
+        "chronos2_covariates": os.environ.get("GOLD_SILVER_CHRONOS2_COVARIATES_PATH") or "amazon/chronos-2",
         "timesfm": os.environ.get("GOLD_SILVER_TIMESFM_PATH") or "google/timesfm-2.5-200m-pytorch",
     }
 
@@ -871,6 +984,14 @@ def candidate_specs(
         paths = foundation_model_paths()
         if status["chronos"] == "available":
             specs["chronos"] = (ChronosRegressor(asset=asset, model_id=paths["chronos"]), {})
+            # Keep the heavier covariate track opt-in.  A normal Chronos-Bolt
+            # benchmark must not accidentally try to download Chronos-2.
+            chronos2_path = os.environ.get("GOLD_SILVER_CHRONOS2_COVARIATES_PATH")
+            if chronos2_path:
+                specs["chronos2_covariates"] = (
+                    Chronos2CovariateRegressor(asset=asset, model_id=chronos2_path),
+                    {},
+                )
         if status["timesfm"] == "available":
             specs["timesfm"] = (TimesFMRegressor(asset=asset, model_id=paths["timesfm"]), {})
     return specs
