@@ -15,6 +15,7 @@ data/processed/*
 models/*
 reports/*
 hf_export/
+assets/mascot_candidates/
 !models/.gitkeep
 !reports/.gitkeep
 *.parquet
