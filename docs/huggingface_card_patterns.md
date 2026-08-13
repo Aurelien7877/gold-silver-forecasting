@@ -16,7 +16,18 @@ This is a read-only review of public Hugging Face metadata and model cards perfo
 
 ## Observed public signals
 
-The time-series model catalogue sorted by downloads showed a strong concentration around recognizable families and variants: Chronos-2, Chronos-Bolt/T5, Granite-TTM, Moirai, TimesFM and other explicitly versioned models. The pages showed high activity for `amazon/chronos-2`, `google/timesfm-2.5-200m-pytorch`, `ibm-granite/granite-timeseries-ttm-r1/r2` and the Moirai family, but the counts change continuously. We therefore do not copy download or like counts into our cards and do not add badges that could become stale or imply endorsement.
+The time-series model catalogue sorted by downloads showed a strong concentration around recognizable families and variants: Chronos-2, Chronos-Bolt/T5, Granite-TTM, Moirai, TimesFM and other explicitly versioned models.
+
+Representative read-only snapshots from the public pages/catalogue were:
+
+| Public model | Snapshot signal | What we learn |
+|---|---:|---|
+| [`amazon/chronos-2`](https://huggingface.co/amazon/chronos-2) | ~18.8M last-month downloads; 377 likes | A clear family name plus a strong task claim and a large ecosystem attracts discovery. |
+| [`google/timesfm-2.5-200m-pytorch`](https://huggingface.co/google/timesfm-2.5-200m-pytorch) | 255 likes; 36 Spaces | Backend/size/version naming and links to live examples make the release easy to reuse. |
+| [`ibm-granite/granite-timeseries-ttm-r1`](https://huggingface.co/ibm-granite/granite-timeseries-ttm-r1) | 327 likes; ~390k catalogue downloads | A family with revisioned variants and a long technical card compounds discoverability. |
+| [`Salesforce/moirai-1.0-R-base`](https://huggingface.co/Salesforce/moirai-1.0-R-base) | 32 likes | Paper, license, task tags and a direct loading example remain useful even for smaller releases. |
+
+These values are time-dependent and are included only to explain the audit; they are not copied into our cards. We do not add download/like badges that could become stale or imply endorsement.
 
 Engagement is also helped by ecosystem links: papers, collections, Spaces, notebooks and deployment instructions. Those links are useful discovery paths, but they are not evidence that a model is superior on Gold/Silver returns.
 
