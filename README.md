@@ -14,8 +14,8 @@ Research-grade, reproducible machine learning for one-day-ahead Gold (`GC=F`) an
 [![Tests](https://img.shields.io/badge/tests-18%20passed-2ea44f)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%20Apple%20Silicon-3776ab)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-MIT-8b5cf6)](LICENSE)
-[![Hugging Face Gold](https://img.shields.io/badge/Hugging%20Face-Gold-f59e0b)](https://huggingface.co/AurelPx/gold-next-day-returns-extratrees)
-[![Hugging Face Silver](https://img.shields.io/badge/Hugging%20Face-Silver-cbd5e1)](https://huggingface.co/AurelPx/silver-next-day-direction-logistic)
+[![Hugging Face Aurum-1D](https://img.shields.io/badge/Hugging%20Face-Aurum--1D-f59e0b)](https://huggingface.co/AurelPx/Aurum-1D)
+[![Hugging Face Argent-1D](https://img.shields.io/badge/Hugging%20Face-Argent--1D-cbd5e1)](https://huggingface.co/AurelPx/Argent-1D)
 
 ## Results at a glance
 
@@ -26,7 +26,7 @@ The final 20% of the common history is a locked test set: 970 daily observations
 | Gold | ExtraTrees | **0.618** | **1.187** | **+125.0%** | -22.6% |
 | Silver | Directional Logistic Regression | **1.451** | **1.315** | **+545.6%** | -44.4% |
 
-**What this means:** in the repository's identical trading backtest, the selected local models outperform every tested foundation track on net Sharpe for both metals. This is a strategy-performance result within this sample—not proof of universal SOTA or future profitability.
+**What this means:** in the repository's identical trading backtest, the selected local models outperform every tested foundation track on net Sharpe for both metals. This is a strategy-performance result within this sample. It is not proof of universal SOTA or future profitability.
 
 ## Local models vs. foundation models
 
@@ -74,14 +74,14 @@ Rolling-origin results and the candidate-aware bootstrap make regime dependence 
 
 More concise explanations of the figures and technical terms are available in [`docs/figure_guide.md`](docs/figure_guide.md) and [`docs/glossary.md`](docs/glossary.md).
 
-## Hugging Face models
+## Hugging Face model family
 
-The selected estimators are packaged as separate, private-by-default model repositories:
+The selected estimators are published as the public **Aurum-1D / Argent-1D** model family. These are SOTA-era, foundation-model-benchmarked research artifacts with the fitted model weights included:
 
-- [Gold — `AurelPx/gold-next-day-returns-extratrees`](https://huggingface.co/AurelPx/gold-next-day-returns-extratrees)
-- [Silver — `AurelPx/silver-next-day-direction-logistic`](https://huggingface.co/AurelPx/silver-next-day-direction-logistic)
+- [Aurum-1D, Gold](https://huggingface.co/AurelPx/Aurum-1D)
+- [Argent-1D, Silver](https://huggingface.co/AurelPx/Argent-1D)
 
-Each card contains the estimator, feature schema, configuration, metrics, inference requirements and the full foundation-model audit. The payloads do not include raw Yahoo/FRED data or external foundation-model weights.
+Each card starts with its mascot and contains `estimator.joblib`, the feature schema, configuration, metrics, inference requirements and the full Chronos-2 / TimesFM 2.5 audit. The payloads do not include raw Yahoo/FRED data or external foundation-model weights.
 
 ## Reproduce
 
@@ -103,11 +103,11 @@ Foundation-model benchmarking is optional and requires the extra dependencies an
 
 ## Repository map
 
-- `src/gold_silver/` — data, causal features, models, validation, backtesting and inference.
-- `scripts/` — download, train, benchmark, statistical tests, figures and HF export.
-- `notebooks/` — exploration, correlations, model benchmark and final selection.
-- `tests/` — temporal leakage, causal-feature, model and statistical helper tests.
-- `docs/` — benchmark boundary, glossary, figure guide and Hugging Face card patterns.
+- `src/gold_silver/`: data, causal features, models, validation, backtesting and inference.
+- `scripts/`: download, train, benchmark, statistical tests, figures and HF export.
+- `notebooks/`: exploration, correlations, model benchmark and final selection.
+- `tests/`: temporal leakage, causal-feature, model and statistical helper tests.
+- `docs/`: benchmark boundary, glossary, figure guide and Hugging Face card patterns.
 
 ## Scope and limitations
 

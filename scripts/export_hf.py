@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-"""Prepare separate, private-by-default Hugging Face payloads for Gold/Silver."""
+"""Prepare public Aurum-1D and Argent-1D Hugging Face payloads."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -19,12 +20,11 @@ DISPLAY_NAMES = {
     "timesfm_covariates": "TimesFM 2.5 (causal covariates)",
 }
 
-# Hub-friendly slugs: publisher/family-task-asset-model-family. The namespace
-# is intentionally left configurable because GitHub and Hugging Face usernames
-# do not have to match.
+# Public-facing model family names. The estimator class remains in the card
+# details, while the Hub name communicates a reusable family identity.
 RECOMMENDED_REPO_NAMES = {
-    "gold": "gold-next-day-returns-extratrees",
-    "silver": "silver-next-day-direction-logistic",
+    "gold": "Aurum-1D",
+    "silver": "Argent-1D",
 }
 
 
@@ -63,7 +63,7 @@ from pathlib import Path
 import joblib
 
 ARTIFACT_DIR = Path(".")
-estimator = joblib.load(ARTIFACT_DIR / "estimator.joblib")
+estimator = joblib.load(ARTIFACT_DIR / "model.joblib")
 schema = json.loads((ARTIFACT_DIR / "feature_schema.json").read_text())
 
 # Build this one-row DataFrame with the causal feature builder in the source
@@ -79,7 +79,7 @@ from pathlib import Path
 import joblib
 
 ARTIFACT_DIR = Path(".")
-estimator = joblib.load(ARTIFACT_DIR / "estimator.joblib")
+estimator = joblib.load(ARTIFACT_DIR / "model.joblib")
 schema = json.loads((ARTIFACT_DIR / "feature_schema.json").read_text())
 
 # Build this one-row DataFrame with the causal feature builder in the source
@@ -94,7 +94,7 @@ print({"direction_score": direction_score, "position": position})
 def _card(asset: str, local: dict, validation: float, foundation, stats, reality, manifest: dict) -> str:
     title = "Gold" if asset == "gold" else "Silver"
     model_name = "ExtraTrees" if asset == "gold" else "Directional Logistic Regression"
-    repo_name = RECOMMENDED_REPO_NAMES[asset]
+    family_name = RECOMMENDED_REPO_NAMES[asset]
     target_note = (
         "The estimator predicts the next-day Gold log return."
         if asset == "gold"
@@ -123,6 +123,7 @@ def _card(asset: str, local: dict, validation: float, foundation, stats, reality
         else "For Silver, the foundation tracks have lower squared error after Holm correction, while the local directional rule has the better net trading result; forecast loss and signed strategy performance are different objectives."
     )
     test_return = local["cumulative_return"]
+    mascot = "mascot_gold.png" if asset == "gold" else "mascot_silver.png"
     return f'''---
 license: mit
 library_name: scikit-learn
@@ -133,13 +134,17 @@ tags:
 - commodities
 - {asset}
 - next-day-forecasting
+- sota-benchmark
+- foundation-model-benchmark
 - research-only
-private: true
+private: false
 ---
 
-# {title} next-day returns — {model_name}
+![{family_name} mascot]({mascot})
 
-> **TL;DR** — A compact, causal, one-day-ahead {title} research model selected by expanding walk-forward validation. The recommended Hub slug is `{repo_name}`. {target_note}
+# {family_name}: {title} next-day forecasting
+
+> **TL;DR:** {family_name} is the {title} member of a SOTA-era research model family for one-day-ahead commodity forecasting. It is benchmarked against Chronos-2 and TimesFM 2.5 under the same walk-forward dates, horizon and costs. {target_note}
 
 > Research and education only. This model is not financial advice, is not a trading recommendation and has no performance guarantee.
 
@@ -150,6 +155,7 @@ private: true
 | Asset | {title} futures (`{'GC=F' if asset == 'gold' else 'SI=F'}`) |
 | Horizon | Next trading day (`J+1`) |
 | Task | {'Regression on log return' if asset == 'gold' else 'Directional classification score'} |
+| Model family | Aurum-1D / Argent-1D |
 | Selected estimator | {model_name} |
 | Input representation | 144 causal engineered features |
 | Selection | Five expanding walk-forward folds, `gap=1` |
@@ -162,9 +168,10 @@ The model is fitted on information available at date `t` and targets the next-da
 
 {output_note}
 
-## Files
+## Model weights and files
 
-- `estimator.joblib`: the fitted {model_name} estimator.
+- `model.joblib`: the fitted {model_name} model weights.
+- `estimator.joblib`: compatibility alias for the fitted weights.
 - `feature_schema.json`: exact input column order and target definition.
 - `config.json`: data, feature, split and transaction-cost configuration.
 - `metrics.json`: validation, locked-test, foundation-model and robustness results.
@@ -193,7 +200,7 @@ These external models were evaluated on the same dates, one-day horizon and cost
 |---|---:|---:|---:|
 {chr(10).join(foundation_lines)}
 
-The repository-level claim is **best local model found under the stated candidate set**, not universal SOTA. The external comparison is a reproducible audit, not a claim that this small experiment covers every published model, training recipe or market period.
+The repository-level claim is **best local model found under the stated candidate set**. Aurum-1D and Argent-1D are positioned as SOTA-era, foundation-model-benchmarked research artifacts, not as universal SOTA claims. The external comparison is a reproducible audit, not a claim that this small experiment covers every published model, training recipe or market period.
 
 {loss_note}
 
@@ -252,6 +259,8 @@ def export_asset(asset: str, bundle_path: Path, output_root: Path) -> Path:
     # private research package just to call predict_proba.
     estimator = getattr(model, "model_", model)
     joblib.dump(estimator, output / "estimator.joblib")
+    shutil.copy2(output / "estimator.joblib", output / "model.joblib")
+    shutil.copy2(Path("docs/figures") / ("mascot_gold.png" if asset == "gold" else "mascot_silver.png"), output / ("mascot_gold.png" if asset == "gold" else "mascot_silver.png"))
     (output / "feature_schema.json").write_text(
         json.dumps({
             "asset": asset,
@@ -297,12 +306,12 @@ def main() -> None:
     for asset in assets:
         export_asset(asset, Path(args.bundle), Path(args.output))
     print(
-        "Recommended private Hub slugs: "
+        "Recommended public Hub model family: "
         f"<namespace>/{RECOMMENDED_REPO_NAMES['gold']} and "
         f"<namespace>/{RECOMMENDED_REPO_NAMES['silver']}"
     )
-    print("Upload privately with: hf upload <namespace>/gold-next-day-returns-extratrees hf_export/gold --private")
-    print("and: hf upload <namespace>/silver-next-day-direction-logistic hf_export/silver --private")
+    print("Upload publicly with: hf upload <namespace>/Aurum-1D hf_export/gold --no-private")
+    print("and: hf upload <namespace>/Argent-1D hf_export/silver --no-private")
 
 
 if __name__ == "__main__":
