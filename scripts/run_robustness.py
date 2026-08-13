@@ -40,6 +40,15 @@ def main() -> None:
                 foundation_predictions.drop(columns=["realized_return"], errors="ignore"),
                 how="inner",
             )
+        global_predictions_path = output / f"{asset}_global_predictions.csv"
+        if global_predictions_path.exists():
+            global_predictions = pd.read_csv(
+                global_predictions_path, index_col=0, parse_dates=True
+            )
+            predictions = predictions.join(
+                global_predictions.drop(columns=["realized_return"], errors="ignore"),
+                how="inner",
+            )
         comparison = pd.read_csv(output / f"{asset}_test_comparison.csv")
         winner = comparison.loc[comparison["selected"], "family"].iloc[0]
         selected_predictions = predictions[winner]

@@ -1,7 +1,7 @@
 PYTHON := .venv/bin/python
 PIP := .venv/bin/pip
 
-.PHONY: install install-research test lint download analysis train foundation-benchmark joint-benchmark robustness predict figures export-hf
+.PHONY: install install-research test lint download analysis train foundation-benchmark joint-benchmark global-benchmark robustness predict figures export-hf
 
 install:
 	$(PIP) install -e '.[dev]'
@@ -31,6 +31,9 @@ foundation-benchmark:
 
 joint-benchmark:
 	PYTHONPATH=src $(PYTHON) scripts/benchmark_joint_model.py
+
+global-benchmark:
+	PYTHONPATH=src $(PYTHON) scripts/benchmark_global_model.py
 
 robustness:
 	PYTHONPATH=src $(PYTHON) scripts/run_robustness.py

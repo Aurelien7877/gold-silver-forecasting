@@ -52,6 +52,18 @@ def main() -> None:
                 gold = pd.concat([table, extra], ignore_index=True)
             else:
                 silver = pd.concat([table, extra], ignore_index=True)
+        global_comparison = processed / "global_model_comparison.csv"
+        if global_comparison.exists():
+            global_rows = pd.read_csv(global_comparison).query("asset == @asset")
+            if not global_rows.empty:
+                global_extra = global_rows.rename(columns={"selected_family": "family"}).copy()
+                global_extra["selected"] = False
+                global_extra["family"] = "global_itransformer"
+                global_extra = global_extra[["family", "selected", "sharpe"]]
+                if asset == "gold":
+                    gold = pd.concat([gold, global_extra], ignore_index=True)
+                else:
+                    silver = pd.concat([silver, global_extra], ignore_index=True)
     fig, ax = plt.subplots(figsize=(11, 5))
     positions = range(len(gold))
     ax.bar([position - 0.2 for position in positions], gold["sharpe"], width=0.4, label="Gold", color="#d49a00")

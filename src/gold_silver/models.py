@@ -10,6 +10,7 @@ models without constructing a future-looking global tensor.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -456,6 +457,161 @@ class TimeMixerRegressor(_SequenceRegressor):
         return MixerNet()
 
 
+class GlobalITransformerRegressor(BaseEstimator, RegressorMixin):
+    """Compact causal iTransformer-style model with Gold/Silver output heads.
+
+    The input is a window of feature channels shaped ``batch x time x feature``.
+    The model inverts this layout before attention: each feature becomes a token
+    whose embedding is built from its temporal history, and attention mixes the
+    feature tokens.  It is intentionally small and serves as a genuine shared
+    two-target benchmark, not as a replacement for the separately selected
+    production models.
+    """
+
+    def __init__(
+        self,
+        lookback: int = 32,
+        hidden_dim: int = 32,
+        n_layers: int = 1,
+        n_heads: int = 4,
+        dropout: float = 0.1,
+        learning_rate: float = 1e-3,
+        epochs: int = 12,
+        batch_size: int = 128,
+        patience: int = 4,
+        random_state: int = 42,
+    ):
+        self.lookback = lookback
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.n_heads = n_heads
+        self.dropout = dropout
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.patience = patience
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        try:
+            import torch
+            from torch import nn
+        except ImportError as exc:  # pragma: no cover - optional runtime
+            raise ImportError("GlobalITransformerRegressor requires torch.") from exc
+        from sklearn.preprocessing import StandardScaler
+
+        values = _as_float_array(X)
+        target = np.asarray(y, dtype=np.float32)
+        if target.ndim != 2 or target.shape[1] != 2:
+            raise ValueError("GlobalITransformerRegressor requires two target columns: Gold and Silver.")
+        if len(values) != len(target):
+            raise ValueError("X and y must have the same number of rows.")
+        self.scaler_ = StandardScaler().fit(values)
+        self.target_scaler_ = StandardScaler().fit(target)
+        scaled = self.scaler_.transform(values).astype(np.float32)
+        scaled_target = self.target_scaler_.transform(target).astype(np.float32)
+        if len(scaled) < self.lookback:
+            raise ValueError(f"Need at least {self.lookback} rows, got {len(scaled)}.")
+        ends = np.arange(self.lookback - 1, len(scaled))
+        windows = np.stack([scaled[end - self.lookback + 1:end + 1] for end in ends]).astype(np.float32)
+        window_targets = scaled_target[ends]
+        self.history_scaled_ = scaled
+        self.history_index_ = getattr(X, "index", None)
+        self.n_features_in_ = values.shape[1]
+        torch.manual_seed(self.random_state)
+        self.device_ = "mps" if torch.backends.mps.is_available() else "cpu"
+        if self.hidden_dim % self.n_heads != 0:
+            raise ValueError("hidden_dim must be divisible by n_heads.")
+        lookback = self.lookback
+        hidden_dim = self.hidden_dim
+        n_heads = self.n_heads
+        dropout = self.dropout
+        n_layers = self.n_layers
+
+        class InvertedNet(nn.Module):
+            def __init__(self, n_features: int):
+                super().__init__()
+                self.temporal_embedding = nn.Linear(lookback, hidden_dim)
+                layer = nn.TransformerEncoderLayer(
+                    d_model=hidden_dim,
+                    nhead=n_heads,
+                    dim_feedforward=hidden_dim * 2,
+                    dropout=dropout,
+                    batch_first=True,
+                    norm_first=True,
+                )
+                self.encoder = nn.TransformerEncoder(layer, num_layers=n_layers)
+                self.head = nn.Sequential(
+                    nn.LayerNorm(hidden_dim),
+                    nn.Linear(hidden_dim, 2),
+                )
+
+            def forward(self, batch):
+                # batch: B x lookback x features; invert to feature tokens.
+                tokens = self.temporal_embedding(batch.transpose(1, 2))
+                encoded = self.encoder(tokens)
+                return self.head(encoded.mean(dim=1))
+
+        self.network_ = InvertedNet(self.n_features_in_).to(self.device_)
+        optimizer = torch.optim.AdamW(
+            self.network_.parameters(), lr=self.learning_rate, weight_decay=1e-4
+        )
+        loss_fn = nn.MSELoss()
+        tensor_x = torch.tensor(windows, device=self.device_)
+        tensor_y = torch.tensor(window_targets, device=self.device_)
+        split = min(max(1, int(len(tensor_x) * 0.85)), max(1, len(tensor_x) - 1))
+        train_x, valid_x = tensor_x[:split], tensor_x[split:]
+        train_y, valid_y = tensor_y[:split], tensor_y[split:]
+        best_state, best_loss, stale = None, float("inf"), 0
+        for _ in range(self.epochs):
+            self.network_.train()
+            permutation = torch.randperm(len(train_x), device=self.device_)
+            for start in range(0, len(train_x), self.batch_size):
+                indices = permutation[start:start + self.batch_size]
+                optimizer.zero_grad()
+                loss_fn(self.network_(train_x[indices]), train_y[indices]).backward()
+                optimizer.step()
+            self.network_.eval()
+            with torch.no_grad():
+                validation_loss = float(
+                    loss_fn(self.network_(valid_x), valid_y).item()
+                    if len(valid_x)
+                    else loss_fn(self.network_(train_x), train_y).item()
+                )
+            if validation_loss < best_loss:
+                best_loss, stale = validation_loss, 0
+                best_state = {
+                    key: value.detach().cpu().clone()
+                    for key, value in self.network_.state_dict().items()
+                }
+            else:
+                stale += 1
+                if stale >= self.patience:
+                    break
+        if best_state is not None:
+            self.network_.load_state_dict(best_state)
+        return self
+
+    def predict(self, X):
+        import torch
+
+        values = _as_float_array(X)
+        scaled = self.scaler_.transform(values).astype(np.float32)
+        if len(scaled) == 0:
+            return np.empty((0, 2), dtype=float)
+        tail = self.history_scaled_[-(self.lookback - 1):]
+        context = np.vstack([tail, scaled])
+        offset = len(tail)
+        windows = np.stack([
+            context[offset + i - self.lookback + 1:offset + i + 1]
+            for i in range(len(scaled))
+        ]).astype(np.float32)
+        self.network_.eval()
+        with torch.no_grad():
+            output = self.network_(torch.tensor(windows, device=self.device_)).detach().cpu().numpy()
+        return self.target_scaler_.inverse_transform(output)
+
+
 class _FoundationRegressor(BaseEstimator, RegressorMixin):
     """Optional univariate adapter for a pretrained forecasting model.
 
@@ -480,6 +636,19 @@ class _FoundationRegressor(BaseEstimator, RegressorMixin):
         self.history_returns_ = np.asarray(X[self.current_column_], dtype=np.float32)
         self._load_model()
         return self
+
+    def _validate_local_checkpoint(self):
+        """Fail early when a local Hugging Face snapshot contains only config files."""
+        path = Path(self.model_id)
+        if not path.is_dir():
+            return
+        weight_patterns = ("*.safetensors", "*.bin", "*.pt", "*.pth")
+        has_weights = any(any(path.glob(pattern)) for pattern in weight_patterns)
+        if not has_weights:
+            raise FileNotFoundError(
+                f"Local checkpoint '{path}' has no model weights. Download the complete snapshot "
+                "with `hf download <repo-id> --local-dir <path>` or pass a valid checkpoint path."
+            )
 
     def _load_model(self):
         raise NotImplementedError
@@ -514,6 +683,7 @@ class ChronosRegressor(_FoundationRegressor):
             from chronos import BaseChronosPipeline, Chronos2Pipeline
         except ImportError as exc:  # pragma: no cover - optional runtime
             raise ImportError("ChronosRegressor requires chronos-forecasting.") from exc
+        self._validate_local_checkpoint()
         if self.model_id not in self._pipeline_cache:
             local_only = os.path.isdir(self.model_id)
             pipeline_class = Chronos2Pipeline if "chronos-2" in self.model_id else BaseChronosPipeline
@@ -563,6 +733,7 @@ class TimesFMRegressor(_FoundationRegressor):
             import timesfm
         except ImportError as exc:  # pragma: no cover - optional runtime
             raise ImportError("TimesFMRegressor requires the timesfm package.") from exc
+        self._validate_local_checkpoint()
         if self.model_id not in self._model_cache:
             model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
                 self.model_id, local_files_only=os.path.isdir(self.model_id)

@@ -58,6 +58,7 @@ Raw Parquet files, processed results, trained bundles, checkpoints and caches re
 ```bash
 make analysis
 make train
+make global-benchmark
 make predict
 ```
 
@@ -114,6 +115,8 @@ Terms used in the reports:
 - **p-value** : Probability, under a specified null model, of seeing a result at least this extreme. It is not the probability that a model is true or will remain profitable.
 - **SOTA** : State of the art means the strongest result within a clearly defined, reproducible comparison set. It is not a universal claim about every model in the literature.
 - **Foundation model** : A large pretrained time-series model reused for a new series, often without local fine-tuning. Its checkpoint and input information must be documented before comparison.
+- **Global model** : One model predicts multiple assets jointly and can share cross-asset information. It is attractive when the assets have stable common structure, but can underperform separate models when their regimes differ.
+- **iTransformer** : An inverted Transformer that embeds each variable’s temporal history as a token and applies attention across variables. Our implementation is a compact two-output research benchmark, not the full published training recipe.
 - **MPS** : Apple’s Metal Performance Shaders backend for PyTorch. It may accelerate compatible neural layers on Apple Silicon, while CPU remains the reproducible fallback.
 - **Regime analysis** : Splits the locked test into up/down, high/low-volatility and calendar-year groups. These labels are descriptive after the fact and must not be used to tune the deployed signal.
 - **PatchTST** : A Transformer that converts temporal patches into tokens and models them with shared channel weights; the local implementation is intentionally compact for Apple Silicon.
@@ -138,6 +141,7 @@ Gold test comparison:
 | ExtraTrees | 1.093 |
 | XGBoost (selected by validation) | 0.605 |
 | Directional Logistic Regression | 0.414 |
+| Global iTransformer (rejected by validation) | -0.765 |
 | TimesFM 2.5 | 0.551 |
 | HistGradientBoosting | 0.357 |
 | Tree blend | 0.269 |
@@ -158,6 +162,7 @@ Silver test comparison:
 | ElasticNet | 0.886 |
 | XGBoost | 0.738 |
 | Tree blend | 0.630 |
+| Global iTransformer (rejected by validation) | 0.619 |
 | TimesFM 2.5 | -0.038 |
 | Chronos-Bolt Tiny | -0.269 |
 
@@ -165,11 +170,11 @@ The directional Silver model is selected from validation and improves the locked
 
 Silver remains cost-sensitive: its Sharpe falls from `1.242` at 10 bps to `0.695` at 20 bps, while fixed-parameter rolling-origin Sharpes range from `−0.794` to `0.994`. The signal is therefore promising but regime-sensitive and turnover-heavy, not deployment-ready.
 
-We also probed one shared multi-output ExtraTrees model. It reached validation Sharpe 0.323 for Gold and −0.571 for Silver, so the shared model is rejected by the same validation rule rather than being forced into production.
+We tested two shared models. Multi-output ExtraTrees reached validation Sharpe `0.323` for Gold and `−0.571` for Silver; the compact global iTransformer reached `−0.443` and `−0.961`, with a joint validation Sharpe of `−0.702`. Both are rejected by the same validation rule, so the project keeps separate Gold and Silver models rather than forcing a shared architecture.
 
 The foundation-model comparison is deliberately separate because Chronos and TimesFM receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. Both foundation models are nevertheless evaluated on the same 970 locked-test dates, one-day horizon and 10 bps costs.
 
-The White Reality Check p-values are 0.124 for Gold and 0.032 for Silver across 13 local candidates, including the directional model. Silver clears this particular 5% candidate-aware null, but its rolling-origin results still include negative historical windows and the external architecture comparison is not exhaustive; this is evidence for continued research, not a universal SOTA or financial-deployment claim.
+The White Reality Check p-values are 0.131 for Gold and 0.035 for Silver across 14 local candidates, including the directional and global models. Silver clears this particular 5% candidate-aware null, but its rolling-origin results still include negative historical windows and the external architecture comparison is not exhaustive; this is evidence for continued research, not a universal SOTA or financial-deployment claim.
 
 ### Architecture review
 
@@ -177,6 +182,7 @@ The White Reality Check p-values are 0.124 for Gold and 0.032 for Silver across 
 - **TimeMixer** separates fine and coarse temporal scales with MLP mixing; our version is a Mac-sized approximation of its multiscale idea. See the [TimeMixer paper](https://arxiv.org/abs/2405.14616).
 - **SAMformer** adds sharpness-aware optimization to a Transformer and is a stronger candidate for a future experiment, but its published benchmarks target long-horizon datasets rather than this one-day financial-return task. See [SAMformer](https://arxiv.org/abs/2402.10198).
 - **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs, unlike the univariate Chronos adapter currently used here. It is a logical next benchmark if a local checkpoint and adapter are available. See [Chronos-2](https://arxiv.org/abs/2510.15821).
+- **iTransformer** inverts the time/variable layout so attention models dependencies between variable tokens; the new global benchmark applies this idea to the 144 causal feature channels and two metal targets. See the [iTransformer paper](https://arxiv.org/abs/2310.06625).
 - **Directional Logistic Regression** is not claimed as a universal SOTA architecture; it is a task-aligned candidate because the trading layer ultimately uses only the sign of the forecast. It wins Silver validation in the current data snapshot, while Gold still selects XGBoost.
 - A recent financial-return study finds that foundation models can win task rankings while gains over random-walk benchmarks remain sparse; this supports our requirement for equalized windows, costs and multiple-comparison tests. See [Pretrained Time-Series Foundation Models for Financial Return Forecasting](https://arxiv.org/abs/2606.27100).
 
@@ -223,6 +229,8 @@ The `make robustness` command regenerates the Reality Check, regime tables and r
 - `data/processed/*_leaderboard.csv`: validation model search results.
 - `data/processed/*_test_comparison.csv`: locked-test metrics for every evaluated family.
 - `data/processed/*_foundation_predictions.csv`: optional Chronos/TimesFM forecasts on the same locked dates, used by the expanded Reality Check when available.
+- `data/processed/global_model_validation.csv`: shared-model configurations selected using the joint validation Sharpe.
+- `data/processed/*_global_predictions.csv`: shared global-model predictions on the locked test dates.
 - `data/processed/*_statistical_tests.csv`: DM tests, Holm-adjusted p-values and paired Sharpe bootstrap intervals.
 - `data/processed/*_reality_check.csv`: candidate-aware White Reality Check against data-snooping.
 - `data/processed/*_regime_performance.csv`: descriptive direction, volatility and calendar regime tables.

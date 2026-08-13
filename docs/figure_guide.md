@@ -5,11 +5,11 @@ Every plot in the tracked figures and notebooks has a short interpretation below
 ## Tracked report figures
 
 - **`normalized_prices.png`** — Both prices are rebased to 100 on the first common date, so co-movement can be seen without confusing dollar units. Similar trends do not imply that daily returns are interchangeable.
-- **`model_benchmark.png`** — Bars compare net locked-test Sharpe across the evaluated families for Gold and Silver. This is a diagnostic comparison after validation selection, not permission to choose the highest test bar retrospectively.
+- **`model_benchmark.png`** — Bars compare net locked-test Sharpe across the evaluated families, including the shared global iTransformer probe, for Gold and Silver. This is a diagnostic comparison after validation selection, not permission to choose the highest test bar retrospectively.
 - **`prediction_diagnostics.png`** — The left panels smooth forecasts and realized returns over 20 days; the right panels show one-step forecast-versus-outcome pairs. The scatter is clipped visually at the central 99%, while reported metrics use all dates.
 - **`gold_robustness.png`** — The left curve shows Gold equity after costs and the right curve shows Sharpe as transaction costs rise. A signal that collapses with modest costs is implementation-fragile.
 - **`strategy_performance.png`** — The top panel compounds net strategy returns from one dollar; the bottom panel measures each fall from its previous equity high. Growth must be read together with drawdown depth and duration.
-- **`robustness.png`** — The left panel evaluates fixed selected parameters on historical one-year origins; sign changes expose regime sensitivity. The right panel compares the observed best Sharpe with the candidate-aware block-bootstrap null, which accounts for selecting a winner from many candidates.
+- **`robustness.png`** — The left panel evaluates fixed selected parameters on historical one-year origins; sign changes expose regime sensitivity. The right panel compares the observed best Sharpe with the candidate-aware block-bootstrap null, which now also includes the shared global-model candidate when its predictions exist.
 
 ## Notebook 01 — data and dependence
 
