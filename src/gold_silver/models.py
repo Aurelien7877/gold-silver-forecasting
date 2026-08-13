@@ -53,9 +53,16 @@ class DirectionalLogisticRegressor(BaseEstimator, RegressorMixin):
     guaranteed to be exactly symmetric in a finite training window.
     """
 
-    def __init__(self, C: float = 0.1, class_weight: str | None = "balanced", max_iter: int = 2000):
+    def __init__(
+        self,
+        C: float = 0.1,
+        class_weight: str | None = "balanced",
+        prediction_threshold: float = 0.0,
+        max_iter: int = 2000,
+    ):
         self.C = C
         self.class_weight = class_weight
+        self.prediction_threshold = prediction_threshold
         self.max_iter = max_iter
 
     def fit(self, X, y):
@@ -80,7 +87,9 @@ class DirectionalLogisticRegressor(BaseEstimator, RegressorMixin):
         probabilities = self.model_.predict_proba(X)
         if probabilities.shape[1] != 2:
             raise ValueError("DirectionalLogisticRegressor requires both return directions in training data.")
-        return probabilities[:, 1] - 0.5
+        score = probabilities[:, 1] - 0.5
+        threshold = float(self.prediction_threshold)
+        return np.where(np.abs(score) >= threshold, score, 0.0)
 
 
 class TreeBlendRegressor(BaseEstimator, RegressorMixin):
@@ -785,7 +794,23 @@ def candidate_specs(
         "moving_average": (BaselineRegressor(kind="moving_average", asset=asset), {}),
         "directional_logistic": (
             DirectionalLogisticRegressor(),
-            {"C": [0.01, 0.1, 1.0, 10.0], "class_weight": ["balanced"]},
+            [
+                {"C": [0.01], "class_weight": ["balanced"], "prediction_threshold": [0.0]},
+                {"C": [0.03], "class_weight": ["balanced"], "prediction_threshold": [0.0]},
+                {"C": [0.1], "class_weight": ["balanced"], "prediction_threshold": [0.0]},
+                {"C": [0.3], "class_weight": ["balanced"], "prediction_threshold": [0.0]},
+                {"C": [1.0], "class_weight": ["balanced"], "prediction_threshold": [0.0]},
+                {"C": [3.0], "class_weight": ["balanced"], "prediction_threshold": [0.0]},
+                {"C": [10.0], "class_weight": ["balanced"], "prediction_threshold": [0.0]},
+                {"C": [0.03], "class_weight": ["balanced"], "prediction_threshold": [0.02]},
+                {"C": [0.1], "class_weight": ["balanced"], "prediction_threshold": [0.02]},
+                {"C": [0.3], "class_weight": ["balanced"], "prediction_threshold": [0.02]},
+                {"C": [1.0], "class_weight": ["balanced"], "prediction_threshold": [0.02]},
+                {"C": [0.1], "class_weight": ["balanced"], "prediction_threshold": [0.05]},
+                {"C": [0.3], "class_weight": ["balanced"], "prediction_threshold": [0.05]},
+                {"C": [1.0], "class_weight": ["balanced"], "prediction_threshold": [0.05]},
+                {"C": [0.3], "class_weight": ["balanced"], "prediction_threshold": [0.1]},
+            ],
         ),
         "ridge": (Pipeline([("scale", StandardScaler()), ("model", Ridge())]), {"model__alpha": [0.01, 0.1, 1.0, 10.0, 100.0]}),
         "elasticnet": (Pipeline([("scale", StandardScaler()), ("model", ElasticNet(max_iter=5000, random_state=random_state))]), {"model__alpha": [1e-4, 1e-3, 1e-2, 1e-1], "model__l1_ratio": [0.1, 0.5, 0.9]}),

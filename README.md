@@ -125,6 +125,8 @@ Terms used in the reports:
 - **Chronos and TimesFM** : Pretrained time-series foundation models used here as zero-shot univariate baselines. They are evaluated on the same dates and costs, but they do not receive the engineered cross-asset features.
 
 For a one- or two-line explanation of every tracked figure and notebook panel, see the [figure guide](docs/figure_guide.md).
+For the complete plain-language glossary of model, trading and statistical terms, see [docs/glossary.md](docs/glossary.md).
+For the literature review and the exact boundary of the current SOTA claim, see [docs/benchmark_review.md](docs/benchmark_review.md).
 
 ## Current benchmark
 
@@ -133,7 +135,7 @@ The current cache uses five walk-forward folds, a one-day horizon and 10 bps cos
 | Asset | Validation winner | Validation Sharpe | Locked-test Sharpe | Test cumulative return |
 |---|---|---:|---:|---:|
 | Gold | ExtraTrees | 0.618 | 1.187 | +125.0% |
-| Silver | Directional Logistic Regression | 1.211 | 1.242 | +472.1% |
+| Silver | Directional Logistic Regression (`C=0.3`) | 1.451 | 1.315 | +545.6% |
 
 Gold test comparison:
 
@@ -159,7 +161,7 @@ Silver test comparison:
 
 | Model | Net Sharpe |
 |---|---:|
-| Directional Logistic Regression (selected by validation) | 1.242 |
+| Directional Logistic Regression (`C=0.3`, selected by validation) | 1.315 |
 | Ridge | 1.052 |
 | XGBoost | 0.969 |
 | ElasticNet | 0.951 |
@@ -170,9 +172,9 @@ Silver test comparison:
 | TimesFM 2.5 | -0.038 |
 | Chronos-Bolt Tiny | -0.269 |
 
-The directional Silver model is selected from validation and reaches locked-test Sharpe `1.242`, ahead of the fully searched HistGradientBoosting candidate at `0.501`. Gold ExtraTrees is also selected from validation; neither decision was made by looking at the locked test.
+The directional Silver model is selected from validation and reaches locked-test Sharpe `1.315`, ahead of the fully searched HistGradientBoosting candidate at `0.501`. Expanding the logistic grid from `C ∈ {0.01, 0.1, 1, 10}` to a deterministic grid containing `C=0.3` raised validation Sharpe from `1.211` to `1.451`; the locked-test improvement is `+0.073`, so this is encouraging but still a single-snapshot result. Gold ExtraTrees is also selected from validation; neither decision was made by looking at the locked test.
 
-Silver remains cost-sensitive: its Sharpe falls from `1.242` at 10 bps to `0.695` at 20 bps, while fixed-parameter rolling-origin Sharpes range from `−0.794` to `0.994`. The signal is therefore promising but regime-sensitive and turnover-heavy, not deployment-ready.
+Silver remains cost-sensitive: its Sharpe falls from `1.315` at 10 bps to `0.774` at 20 bps, while fixed-parameter rolling-origin Sharpes range from `−1.023` to `1.238`. The signal is therefore promising but regime-sensitive and turnover-heavy, not deployment-ready.
 
 We tested two shared models. Multi-output ExtraTrees reached validation Sharpe `0.323` for Gold and `−0.571` for Silver; the compact global iTransformer reached `−0.443` and `−0.961`, with a joint validation Sharpe of `−0.702`. Both are rejected by the same validation rule, so the project keeps separate Gold and Silver models rather than forcing a shared architecture.
 
@@ -180,17 +182,19 @@ On the locked dates, the paired comparison gives a Gold DM p-value of `0.017` an
 
 The foundation-model comparison is deliberately separate because Chronos and TimesFM receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. Both foundation models are nevertheless evaluated on the same 970 locked-test dates, one-day horizon and 10 bps costs.
 
-The White Reality Check p-values are 0.090 for Gold and 0.037 for Silver across 14 local candidates, including the directional and global models. Silver clears this particular 5% candidate-aware null; Gold does not. Both assets still show regime sensitivity, and the external architecture comparison is not exhaustive, so this is evidence for continued research rather than a universal SOTA or financial-deployment claim.
+The White Reality Check p-values are 0.090 for Gold and 0.021 for Silver across 14 candidates, including the directional, foundation and global-model predictions available in the cache. Silver clears this particular 5% candidate-aware null; Gold does not. Both assets still show regime sensitivity, and the external architecture comparison is not exhaustive, so this is evidence for continued research rather than a universal SOTA or financial-deployment claim.
 
 ### Architecture review
 
 - **PatchTST** uses temporal patches as Transformer tokens and shared channel weights; our compact implementation tests the inductive bias locally, but it is not the full published training recipe. See the [original PatchTST paper](https://arxiv.org/abs/2211.14730).
 - **TimeMixer** separates fine and coarse temporal scales with MLP mixing; our version is a Mac-sized approximation of its multiscale idea. See the [TimeMixer paper](https://arxiv.org/abs/2405.14616).
 - **SAMformer** adds sharpness-aware optimization to a Transformer and is a stronger candidate for a future experiment, but its published benchmarks target long-horizon datasets rather than this one-day financial-return task. See [SAMformer](https://arxiv.org/abs/2402.10198).
-- **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs, unlike the univariate Chronos adapter currently used here. It is a logical next benchmark if a local checkpoint and adapter are available. See [Chronos-2](https://arxiv.org/abs/2510.15821).
+- **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs, unlike the univariate Chronos result currently cached here. Its official 120M checkpoint is the next external benchmark; it must be run with the same dates, horizon, costs and tests before any SOTA claim. See [Chronos-2](https://arxiv.org/abs/2510.15821) and the [official implementation](https://github.com/amazon-science/chronos-forecasting).
 - **iTransformer** inverts the time/variable layout so attention models dependencies between variable tokens; the new global benchmark applies this idea to the 144 causal feature channels and two metal targets. See the [iTransformer paper](https://arxiv.org/abs/2310.06625).
 - **Directional Logistic Regression** is not claimed as a universal SOTA architecture; it is a task-aligned candidate because the trading layer ultimately uses only the sign of the forecast. It wins Silver validation in the current data snapshot, while Gold now selects ExtraTrees after the expanded grid search.
 - A recent financial-return study finds that foundation models can win task rankings while gains over random-walk benchmarks remain sparse; this supports our requirement for equalized windows, costs and multiple-comparison tests. See [Pretrained Time-Series Foundation Models for Financial Return Forecasting](https://arxiv.org/abs/2606.27100).
+
+The complete literature comparison and the exact tested/not-tested boundary are documented in [docs/benchmark_review.md](docs/benchmark_review.md). In short, the current results are the best local results found under this repository's protocol, not universal SOTA: Chronos-2 covariate forecasting remains an explicit pending benchmark because its checkpoint was not available in the local cache.
 
 ## Visual research summary
 
