@@ -28,7 +28,8 @@ foundation-benchmark:
 	PYTHONPATH=src $(PYTHON) scripts/benchmark_foundation_models.py \
 		--chronos-path "$${GOLD_SILVER_CHRONOS_PATH}" \
 		--chronos2-covariates-path "$${GOLD_SILVER_CHRONOS2_COVARIATES_PATH}" \
-		--timesfm-path "$${GOLD_SILVER_TIMESFM_PATH}"
+		--timesfm-path "$${GOLD_SILVER_TIMESFM_PATH}" \
+		--timesfm-covariates-path "$${GOLD_SILVER_TIMESFM_COVARIATES_PATH}"
 
 joint-benchmark:
 	PYTHONPATH=src $(PYTHON) scripts/benchmark_joint_model.py

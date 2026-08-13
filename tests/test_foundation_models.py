@@ -1,7 +1,12 @@
+import numpy as np
 import pandas as pd
 import pytest
 
-from gold_silver.models import Chronos2CovariateRegressor, ChronosRegressor
+from gold_silver.models import (
+    Chronos2CovariateRegressor,
+    ChronosRegressor,
+    TimesFMCovariateRegressor,
+)
 
 
 def test_incomplete_local_foundation_checkpoint_fails_with_actionable_error(tmp_path):
@@ -40,3 +45,39 @@ def test_chronos2_context_uses_only_observed_features(monkeypatch):
     assert context.iloc[-1]["silver_return_current"] == 0.06
     assert 999.0 not in context["target"].to_numpy()
     assert context["timestamp"].is_monotonic_increasing
+
+
+def test_timesfm_covariates_have_causal_future_values(monkeypatch):
+    monkeypatch.setattr(TimesFMCovariateRegressor, "_load_model", lambda self: None)
+    train = pd.DataFrame(
+        {
+            "gold_return_current": [0.01, -0.02],
+            "silver_return_current": [0.03, 0.04],
+            "gold_return_lag_1": [0.00, 0.01],
+            "silver_return_lag_1": [0.02, 0.03],
+            "gold_return_lag_2": [-0.01, 0.00],
+            "silver_return_lag_2": [0.01, 0.02],
+        },
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    future = pd.DataFrame(
+        {
+            "gold_return_current": [0.05],
+            "silver_return_current": [0.06],
+            "gold_return_lag_1": [-0.02],
+            "silver_return_lag_1": [0.04],
+            "gold_return_lag_2": [0.01],
+            "silver_return_lag_2": [0.03],
+        },
+        index=pd.date_range("2024-01-03", periods=1, freq="D"),
+    )
+    model = TimesFMCovariateRegressor(asset="gold", lookback=3).fit(
+        train, pd.Series([999.0, 999.0], index=train.index)
+    )
+    targets, covariates = model._build_covariate_inputs(future)
+
+    assert np.allclose(targets[0], [0.01, -0.02, 0.05])
+    assert len(covariates["gold_return_lag_1"][0]) == 4
+    # At t+1, lag-1 is today's observed current return, not a future value.
+    assert covariates["gold_return_lag_1"][0][-1] == 0.05
+    assert covariates["gold_return_lag_2"][0][-1] == -0.02

@@ -859,7 +859,12 @@ class TimesFMRegressor(_FoundationRegressor):
             model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
                 self.model_id, local_files_only=os.path.isdir(self.model_id)
             )
-            model.compile(timesfm.ForecastConfig(max_context=self.lookback, max_horizon=1))
+            model.compile(timesfm.ForecastConfig(
+                max_context=self.lookback,
+                max_horizon=1,
+                normalize_inputs=True,
+                infer_is_positive=False,
+            ))
             self._model_cache[self.model_id] = model
         self.timesfm_ = self._model_cache[self.model_id]
 
@@ -872,6 +877,123 @@ class TimesFMRegressor(_FoundationRegressor):
             return []
         point_forecast, _ = self.timesfm_.forecast(horizon=1, inputs=contexts)
         return np.asarray(point_forecast).reshape(len(contexts), -1)[:, 0].astype(float).tolist()
+
+
+class TimesFMCovariateRegressor(_FoundationRegressor):
+    """TimesFM 2.5 with strictly causal lagged numerical covariates.
+
+    TimesFM's XReg interface requires future covariate values.  Raw current
+    returns or current external-market changes are not known at t+1, so this
+    adapter supplies lagged covariates whose t+1 value is exactly the current
+    observation at t.  This is a known-from-history forecast design, not a
+    look-ahead shortcut.
+    """
+
+    package_name = "timesfm"
+    model_id = "google/timesfm-2.5-200m-pytorch"
+    _model_cache: dict[str, Any] = {}
+    _COVARIATE_COLUMNS = (
+        "gold_return_lag_1",
+        "silver_return_lag_1",
+        "gold_return_lag_2",
+        "silver_return_lag_2",
+        "dxy_adj_close_change_lag_1",
+        "vix_adj_close_change_lag_1",
+    )
+
+    def fit(self, X, y):
+        self.current_column_ = f"{self.asset}_return_current"
+        if self.current_column_ not in X:
+            raise ValueError(f"Missing {self.current_column_} for TimesFM covariate adapter.")
+        self.covariate_columns_ = [
+            column for column in self._COVARIATE_COLUMNS if column in X.columns
+        ]
+        if not self.covariate_columns_:
+            raise ValueError("No causal lagged covariates available for TimesFM.")
+        self.history_frame_ = X[[self.current_column_, *self.covariate_columns_]].astype(float).copy()
+        source_columns = []
+        for column in self.covariate_columns_:
+            if column.endswith("_lag_1"):
+                source = column.removesuffix("_lag_1")
+                if source not in X.columns and f"{source}_current" in X.columns:
+                    source = f"{source}_current"
+            elif column.endswith("_lag_2"):
+                source = f"{column.removesuffix('_lag_2')}_lag_1"
+            else:  # pragma: no cover - protected by the fixed column list
+                raise ValueError(f"TimesFM covariate must be lagged: {column}")
+            if source not in X.columns:
+                raise ValueError(f"Missing current source column for {column}: {source}")
+            source_columns.append(source)
+        self.future_source_columns_ = dict(zip(self.covariate_columns_, source_columns))
+        self._load_model()
+        return self
+
+    def _load_model(self):
+        try:
+            import timesfm
+        except ImportError as exc:  # pragma: no cover - optional runtime
+            raise ImportError("TimesFMCovariateRegressor requires the timesfm package.") from exc
+        self._validate_local_checkpoint()
+        cache_key = f"{self.model_id}|covariates|{self.lookback}"
+        if cache_key not in self._model_cache:
+            model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+                self.model_id, local_files_only=os.path.isdir(self.model_id)
+            )
+            model.compile(timesfm.ForecastConfig(
+                max_context=self.lookback,
+                max_horizon=1,
+                normalize_inputs=True,
+                infer_is_positive=False,
+                use_continuous_quantile_head=True,
+                return_backcast=True,
+            ))
+            self._model_cache[cache_key] = model
+        self.timesfm_ = self._model_cache[cache_key]
+
+    @staticmethod
+    def _future_covariate_value(column: str, row: pd.Series) -> float:
+        """Return the t+1 value of a lagged covariate using information at t."""
+        if column.endswith("_lag_1"):
+            source = column.removesuffix("_lag_1")
+            if source not in row and f"{source}_current" in row:
+                source = f"{source}_current"
+        elif column.endswith("_lag_2"):
+            source = f"{column.removesuffix('_lag_2')}_lag_1"
+        else:
+            raise ValueError(f"TimesFM covariate must be lagged: {column}")
+        if source not in row:
+            raise ValueError(f"Missing current source column for {column}: {source}")
+        return float(row[source])
+
+    def _build_covariate_inputs(self, X) -> tuple[list[np.ndarray], dict[str, list[np.ndarray]]]:
+        required = list(self.history_frame_.columns) + list(self.future_source_columns_.values())
+        incoming = X[list(dict.fromkeys(required))].astype(float)
+        observed = self.history_frame_.copy()
+        targets: list[np.ndarray] = []
+        covariates = {column: [] for column in self.covariate_columns_}
+        for _, row in incoming.iterrows():
+            observed = pd.concat([observed, row[self.history_frame_.columns].to_frame().T], axis=0)
+            context = observed.tail(self.lookback)
+            targets.append(context[self.current_column_].to_numpy(dtype=np.float32))
+            for column in self.covariate_columns_:
+                history = context[column].to_numpy(dtype=np.float32)
+                future = self._future_covariate_value(column, row)
+                covariates[column].append(np.concatenate([history, [future]]).astype(np.float32))
+        return targets, covariates
+
+    def predict(self, X):
+        targets, covariates = self._build_covariate_inputs(X)
+        if not targets:
+            return np.asarray([], dtype=float)
+        point_forecast, _ = self.timesfm_.forecast_with_covariates(
+            inputs=targets,
+            dynamic_numerical_covariates=covariates,
+            xreg_mode="timesfm + xreg",
+            normalize_xreg_target_per_input=True,
+            ridge=1.0,
+            force_on_cpu=True,
+        )
+        return np.asarray(point_forecast, dtype=float).reshape(len(targets), -1)[:, 0]
 
 
 def foundation_model_status() -> dict[str, str]:
@@ -892,6 +1014,7 @@ def foundation_model_paths() -> dict[str, str]:
         "chronos": os.environ.get("GOLD_SILVER_CHRONOS_PATH") or "amazon/chronos-2",
         "chronos2_covariates": os.environ.get("GOLD_SILVER_CHRONOS2_COVARIATES_PATH") or "amazon/chronos-2",
         "timesfm": os.environ.get("GOLD_SILVER_TIMESFM_PATH") or "google/timesfm-2.5-200m-pytorch",
+        "timesfm_covariates": os.environ.get("GOLD_SILVER_TIMESFM_COVARIATES_PATH") or "google/timesfm-2.5-200m-pytorch",
     }
 
 
@@ -994,4 +1117,10 @@ def candidate_specs(
                 )
         if status["timesfm"] == "available":
             specs["timesfm"] = (TimesFMRegressor(asset=asset, model_id=paths["timesfm"]), {})
+            timesfm_covariate_path = os.environ.get("GOLD_SILVER_TIMESFM_COVARIATES_PATH")
+            if timesfm_covariate_path:
+                specs["timesfm_covariates"] = (
+                    TimesFMCovariateRegressor(asset=asset, model_id=timesfm_covariate_path),
+                    {},
+                )
     return specs

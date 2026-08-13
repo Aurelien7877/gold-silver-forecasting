@@ -65,7 +65,7 @@ def run_walk_forward_search(X: pd.DataFrame, y: pd.Series, model_family: str, co
     if model_family not in specs:
         raise ValueError(f"Unknown model family {model_family}; choose from {list(specs)}")
     estimator, grid = specs[model_family]
-    if not grid and model_family in {"chronos", "chronos2_covariates", "timesfm"}:
+    if not grid and model_family in {"chronos", "chronos2_covariates", "timesfm", "timesfm_covariates"}:
         return _run_manual_search(X, y, estimator, [{}], model_family, config)
     if not grid:
         estimator = clone(estimator).fit(X, y)
@@ -75,7 +75,7 @@ def run_walk_forward_search(X: pd.DataFrame, y: pd.Series, model_family: str, co
         {key: [value] for key, value in combination.items()}
         for combination in list(ParameterGrid(grid))[: config.search.max_trials]
     ]
-    if model_family in {"tsmixer", "patch_tst", "time_mixer", "chronos", "chronos2_covariates", "timesfm"}:
+    if model_family in {"tsmixer", "patch_tst", "time_mixer", "chronos", "chronos2_covariates", "timesfm", "timesfm_covariates"}:
         return _run_manual_search(X, y, estimator, combinations, model_family, config)
     search = GridSearchCV(
         estimator=estimator,

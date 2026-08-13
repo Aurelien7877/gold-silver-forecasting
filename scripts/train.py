@@ -26,6 +26,11 @@ def main() -> None:
         help="Local Chronos-2 checkpoint for the covariate-aware adapter.",
     )
     parser.add_argument("--timesfm-path", default=None, help="Local TimesFM checkpoint directory.")
+    parser.add_argument(
+        "--timesfm-covariates-path",
+        default=None,
+        help="Local TimesFM checkpoint for the causal covariate-aware adapter.",
+    )
     args = parser.parse_args()
     config = load_config(args.config)
     if args.include_foundation_models:
@@ -42,6 +47,10 @@ def main() -> None:
         import os
 
         os.environ["GOLD_SILVER_TIMESFM_PATH"] = args.timesfm_path
+    if args.timesfm_covariates_path:
+        import os
+
+        os.environ["GOLD_SILVER_TIMESFM_COVARIATES_PATH"] = args.timesfm_covariates_path
     result = run_experiment(config, use_cache=not args.download)
     print(json.dumps(result.get("assets", {}), indent=2, default=str))
 

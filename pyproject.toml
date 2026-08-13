@@ -34,6 +34,7 @@ dev = [
 foundation = [
   "chronos-forecasting==2.3.1",
   "timesfm==2.0.2",
+  "jax>=0.4.30,<1",
 ]
 research = [
   "xgboost>=2.0,<4",
