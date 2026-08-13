@@ -86,6 +86,7 @@ make foundation-benchmark
 - Targets: `log(close[t+1] / close[t])` for each asset.
 - Features: lagged returns, momentum, rolling volatility, moving averages, drawdown, volume, Gold/Silver ratio, rolling correlations, cross-asset returns and market covariates.
 - Split: final 20% locked as test; one feature row is discarded as a target buffer; the first 80% is searched with five expanding walk-forward folds and `gap=1`.
+- Search budget: up to 16 deterministic grid combinations per family; this covers the current tabular grids while keeping the Apple Silicon run practical.
 - Selection metric: mean annualized net Sharpe on validation, with turnover costs of 10 bps per unit turnover.
 - Signals: `-1`, `0` or `+1`, applied to the next realized return.
 - Statistical checks: one-step squared-error Diebold–Mariano tests, paired moving-block bootstrap for Sharpe differences and Holm–Bonferroni correction across competitors.
@@ -131,25 +132,28 @@ The current cache uses five walk-forward folds, a one-day horizon and 10 bps cos
 
 | Asset | Validation winner | Validation Sharpe | Locked-test Sharpe | Test cumulative return |
 |---|---|---:|---:|---:|
-| Gold | XGBoost | 0.497 | 0.605 | +46.2% |
+| Gold | ExtraTrees | 0.618 | 1.187 | +125.0% |
 | Silver | Directional Logistic Regression | 1.211 | 1.242 | +472.1% |
 
 Gold test comparison:
 
 | Model | Net Sharpe |
 |---|---:|
-| ExtraTrees | 1.093 |
-| XGBoost (selected by validation) | 0.605 |
+| ExtraTrees (selected by validation) | 1.187 |
+| Tree blend | 1.187 |
+| ElasticNet | 1.124 |
+| XGBoost | 0.605 |
 | Directional Logistic Regression | 0.414 |
-| Global iTransformer (rejected by validation) | -0.765 |
 | TimesFM 2.5 | 0.551 |
 | HistGradientBoosting | 0.357 |
-| Tree blend | 0.269 |
+| Moving average | 0.362 |
+| Ridge | 0.175 |
+| Global iTransformer (rejected by validation) | -0.765 |
 | Chronos-Bolt Tiny | -0.412 |
 | TimeMixer-style | -0.387 |
 | PatchTST-style | -1.190 |
 
-ExtraTrees has the highest locked-test Gold Sharpe, but XGBoost is selected because it won validation. After Newey–West Diebold–Mariano testing, Holm correction and the White Reality Check, neither result is statistically strong enough to claim universal SOTA.
+ExtraTrees now wins both Gold validation (`0.618`) and the locked test (`1.187`) after expanding the deterministic grid. Its 10 bps test Sharpe falls to `0.751` at 20 bps, and the candidate-aware Reality Check remains above 5%; this is a strong local candidate, not proof of universal SOTA.
 
 Silver test comparison:
 
@@ -157,26 +161,26 @@ Silver test comparison:
 |---|---:|
 | Directional Logistic Regression (selected by validation) | 1.242 |
 | Ridge | 1.052 |
+| XGBoost | 0.969 |
+| ElasticNet | 0.951 |
 | ExtraTrees | 0.924 |
-| HistGradientBoosting | 0.904 |
-| ElasticNet | 0.886 |
-| XGBoost | 0.738 |
+| HistGradientBoosting | 0.501 |
 | Tree blend | 0.630 |
 | Global iTransformer (rejected by validation) | 0.619 |
 | TimesFM 2.5 | -0.038 |
 | Chronos-Bolt Tiny | -0.269 |
 
-The directional Silver model is selected from validation and improves the locked-test Sharpe from `0.904` to `1.242` relative to the previous HistGradientBoosting winner. The higher Gold ExtraTrees test Sharpe is still not selected after the fact: every model decision is made from validation only.
+The directional Silver model is selected from validation and reaches locked-test Sharpe `1.242`, ahead of the fully searched HistGradientBoosting candidate at `0.501`. Gold ExtraTrees is also selected from validation; neither decision was made by looking at the locked test.
 
 Silver remains cost-sensitive: its Sharpe falls from `1.242` at 10 bps to `0.695` at 20 bps, while fixed-parameter rolling-origin Sharpes range from `−0.794` to `0.994`. The signal is therefore promising but regime-sensitive and turnover-heavy, not deployment-ready.
 
 We tested two shared models. Multi-output ExtraTrees reached validation Sharpe `0.323` for Gold and `−0.571` for Silver; the compact global iTransformer reached `−0.443` and `−0.961`, with a joint validation Sharpe of `−0.702`. Both are rejected by the same validation rule, so the project keeps separate Gold and Silver models rather than forcing a shared architecture.
 
-On the locked dates, the paired comparison gives a Gold DM p-value of `0.057` and a Silver p-value below `10⁻⁶⁷`. Gold’s local model has slightly lower squared error; Silver’s global model has lower squared error, yet the local strategy still has higher net Sharpe by `0.623`. This shows why forecast loss and tradable performance must both be reported, not a universal theorem about global architectures.
+On the locked dates, the paired comparison gives a Gold DM p-value of `0.017` and a Silver p-value below `10⁻⁶⁷`. Gold’s local model has lower squared error and higher net Sharpe by `1.952`; Silver’s global model has lower squared error, yet the local strategy still has higher net Sharpe by `0.623`. This shows why forecast loss and tradable performance must both be reported, not a universal theorem about global architectures.
 
 The foundation-model comparison is deliberately separate because Chronos and TimesFM receive only the univariate return history, while local tabular models receive engineered OHLC and cross-asset features. Both foundation models are nevertheless evaluated on the same 970 locked-test dates, one-day horizon and 10 bps costs.
 
-The White Reality Check p-values are 0.131 for Gold and 0.035 for Silver across 14 local candidates, including the directional and global models. Silver clears this particular 5% candidate-aware null, but its rolling-origin results still include negative historical windows and the external architecture comparison is not exhaustive; this is evidence for continued research, not a universal SOTA or financial-deployment claim.
+The White Reality Check p-values are 0.090 for Gold and 0.037 for Silver across 14 local candidates, including the directional and global models. Silver clears this particular 5% candidate-aware null; Gold does not. Both assets still show regime sensitivity, and the external architecture comparison is not exhaustive, so this is evidence for continued research rather than a universal SOTA or financial-deployment claim.
 
 ### Architecture review
 
@@ -185,7 +189,7 @@ The White Reality Check p-values are 0.131 for Gold and 0.035 for Silver across 
 - **SAMformer** adds sharpness-aware optimization to a Transformer and is a stronger candidate for a future experiment, but its published benchmarks target long-horizon datasets rather than this one-day financial-return task. See [SAMformer](https://arxiv.org/abs/2402.10198).
 - **Chronos-2** extends foundation forecasting to multivariate and covariate-informed inputs, unlike the univariate Chronos adapter currently used here. It is a logical next benchmark if a local checkpoint and adapter are available. See [Chronos-2](https://arxiv.org/abs/2510.15821).
 - **iTransformer** inverts the time/variable layout so attention models dependencies between variable tokens; the new global benchmark applies this idea to the 144 causal feature channels and two metal targets. See the [iTransformer paper](https://arxiv.org/abs/2310.06625).
-- **Directional Logistic Regression** is not claimed as a universal SOTA architecture; it is a task-aligned candidate because the trading layer ultimately uses only the sign of the forecast. It wins Silver validation in the current data snapshot, while Gold still selects XGBoost.
+- **Directional Logistic Regression** is not claimed as a universal SOTA architecture; it is a task-aligned candidate because the trading layer ultimately uses only the sign of the forecast. It wins Silver validation in the current data snapshot, while Gold now selects ExtraTrees after the expanded grid search.
 - A recent financial-return study finds that foundation models can win task rankings while gains over random-walk benchmarks remain sparse; this supports our requirement for equalized windows, costs and multiple-comparison tests. See [Pretrained Time-Series Foundation Models for Financial Return Forecasting](https://arxiv.org/abs/2606.27100).
 
 ## Visual research summary
