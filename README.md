@@ -1,110 +1,109 @@
-# Gold/Silver next-day forecasting
+# Gold & Silver Forecasting
 
-Reproducible research on one-day-ahead Gold (`GC=F`) and Silver (`SI=F`) returns on Apple Silicon. The project is designed to answer a narrow question: do causal market features and modern time-series models produce a repeatable out-of-sample trading signal after costs?
+![Gold and Silver forecasting](docs/figures/hero_gold_silver.png)
 
-This is research software, not investment advice. A result called “SOTA” below means the best model inside this repository’s pre-specified candidate set; it is not a claim of universal superiority.
+Research-grade, reproducible machine learning for one-day-ahead Gold (`GC=F`) and Silver (`SI=F`) futures. The repository compares causal feature models with Chronos-2 and TimesFM 2.5 under the same walk-forward splits, horizon and transaction costs.
 
-## Current result
+> **Research only.** Historical backtests are not investment advice, a trading recommendation or a guarantee of future performance.
 
-Two separate models are retained because the shared Gold/Silver iTransformer-style model was weaker on common validation folds.
+[![Tests](https://img.shields.io/badge/tests-18%20passed-2ea44f)](tests/)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%20Apple%20Silicon-3776ab)](pyproject.toml)
+[![License](https://img.shields.io/badge/license-MIT-8b5cf6)](LICENSE)
+[![Hugging Face Gold](https://img.shields.io/badge/Hugging%20Face-Gold-f59e0b)](https://huggingface.co/AurelPx/gold-next-day-returns-extratrees)
+[![Hugging Face Silver](https://img.shields.io/badge/Hugging%20Face-Silver-cbd5e1)](https://huggingface.co/AurelPx/silver-next-day-direction-logistic)
+
+## Results at a glance
+
+The final 20% of the common history is a locked test set: 970 daily observations, one-day horizon and 10 bps charged per unit of turnover. Models were selected only on the earlier expanding walk-forward validation folds.
 
 | Asset | Selected model | Validation net Sharpe | Locked-test net Sharpe | Test return | Max drawdown |
 |---|---|---:|---:|---:|---:|
-| Gold | ExtraTrees | 0.618 | 1.187 | +125.0% | -22.6% |
-| Silver | Directional Logistic Regression (`C=0.3`) | 1.451 | 1.315 | +545.6% | -44.4% |
+| Gold | ExtraTrees | **0.618** | **1.187** | **+125.0%** | -22.6% |
+| Silver | Directional Logistic Regression | **1.451** | **1.315** | **+545.6%** | -44.4% |
 
-The locked test contains 970 common dates and charges 10 bps per unit of turnover. Gold turnover is 0.331; Silver turnover is 0.931, so Silver’s larger return comes with materially higher implementation risk.
+**What this means:** in the repository's identical trading backtest, the selected local models outperform every tested foundation track on net Sharpe for both metals. This is a strategy-performance result within this sample—not proof of universal SOTA or future profitability.
 
-The candidate-aware White Reality Check is `p=0.106` for Gold and `p=0.042` for Silver across 18 candidates. These are conditional, block-bootstrap results—not proof that either signal will persist.
+## Local models vs. foundation models
 
-## Foundation-model comparison
+| Locked-test net Sharpe | Gold | Silver |
+|---|---:|---:|
+| Selected local model | **1.187** | **1.315** |
+| Chronos-2, univariate | 0.916 | -0.255 |
+| Chronos-2, past-only covariates | 0.159 | -0.504 |
+| TimesFM 2.5, univariate | 0.551 | -0.038 |
+| TimesFM 2.5, causal covariates | 0.279 | 0.409 |
 
-Chronos-2 and TimesFM 2.5 were finally run locally, on the same locked dates, one-day horizon and 10 bps cost rule. “Covariates” means past-only related signals; their future values are supplied only when reconstructible from information already observed at date `t`.
+### The important nuance
 
-| Asset | Chronos-2 | Chronos-2 + covariates | TimesFM 2.5 | TimesFM 2.5 + causal covariates | Local winner |
-|---|---:|---:|---:|---:|---:|
-| Gold test Sharpe | 0.916 | 0.159 | 0.551 | 0.279 | **1.187** |
-| Silver test Sharpe | -0.255 | -0.504 | -0.038 | 0.409 | **1.315** |
+- **Trading objective:** our selected models win on net Sharpe after costs for Gold and Silver.
+- **Forecast-loss objective:** Gold also has lower squared error than all four foundation tracks, but the paired differences do not survive Holm correction. Silver has lower foundation-model squared error, while the directional local model achieves the stronger signed trading result.
+- **Statistical guardrail:** the candidate-aware White Reality Check gives `p=0.106` for Gold and `p=0.042` for Silver across 18 candidates. This adjusts for searching across many models; it is not a guarantee that the edge persists.
 
-Gold’s local winner has lower squared forecast error than every foundation track, although none of those four Gold differences survives Holm correction. Silver’s local winner has higher squared error than every foundation track after correction, but it produces the best signed trading result because it was selected for direction rather than return-magnitude accuracy. Forecast loss and tradable performance answer different questions.
-
-## Essential figures
-
-![Out-of-sample forecast story](docs/figures/forecast_story.png)
-
-The upper panel gives price context and marks the untouched test period. The lower panels compare smoothed realized returns with the Gold forecast and Silver direction score; Silver is a sign signal, not a calibrated return forecast.
+**Net Sharpe** is risk-adjusted return after transaction costs. **Squared error** measures numerical forecast accuracy. A model can be better at predicting small return magnitudes yet worse when its signal is converted into a long/short position.
 
 ![Locked-test model comparison](docs/figures/model_benchmark.png)
 
-Each bar is a net Sharpe on the same locked dates and costs. The local winners are highest; foundation models are useful external references, but they receive a different information representation than the feature-rich local models.
+The bars use the same dates, horizon and cost rule. Local and foundation models are compared transparently, while the foundation models receive their own stated univariate or causal-covariate inputs.
+
+## What the pipeline does
+
+- Downloads and caches Yahoo Finance data for Gold and Silver, with optional macro and market covariates.
+- Normalizes timestamps, checks missingness and common dates, and records a source manifest with checksums.
+- Builds strictly causal features: lags, momentum, rolling volatility, moving-average gaps, drawdown, volume, Gold/Silver ratio, spreads, rolling correlations and cross-asset returns.
+- Predicts `log(close[t+1] / close[t])` for Gold and Silver; Silver's final selected model is optimized for directional trading.
+- Searches models with expanding walk-forward folds and `gap=1`; no random shuffle is used.
+- Backtests positions in `{-1, 0, +1}` with explicit turnover costs.
+- Runs robustness checks: bootstrap intervals, regime splits, Diebold-Mariano paired tests, Holm correction and White Reality Check.
+
+![Out-of-sample forecast story](docs/figures/forecast_story.png)
+
+The upper panel gives price context and marks the untouched test period. The lower panels show the Gold return forecast and the Silver directional score.
 
 ![Prediction diagnostics](docs/figures/prediction_diagnostics.png)
 
-The time panels show whether forecasts move with realized returns; the scatter panels show the weak scale of daily prediction errors. Gold IC is 0.148 and Silver IC is 0.115, so information is present but noisy.
+These diagnostics show why the result must be interpreted cautiously: daily return forecasts are noisy even when their signs produce a useful historical strategy.
 
 ![Strategy robustness](docs/figures/robustness.png)
 
-The left panel shows fixed-parameter performance at historical origins; sign changes reveal regime dependence. The right panel compares the observed best Sharpe with the maximum Sharpe expected under a candidate-aware no-skill bootstrap.
+Rolling-origin results and the candidate-aware bootstrap make regime dependence and model-selection uncertainty visible.
 
-![Equity and drawdown](docs/figures/strategy_performance.png)
+More concise explanations of the figures and technical terms are available in [`docs/figure_guide.md`](docs/figure_guide.md) and [`docs/glossary.md`](docs/glossary.md).
 
-Equity compounds signed next-day positions after costs, while drawdown measures the distance below the previous peak. The curves make the Silver drawdown and turnover risk visible rather than hiding them behind cumulative return.
+## Hugging Face models
 
-For one- or two-line explanations of every tracked graph and notebook panel, read [`docs/figure_guide.md`](docs/figure_guide.md). For complex terms such as leakage, Sharpe, IC, DM tests and SOTA, read [`docs/glossary.md`](docs/glossary.md).
+The selected estimators are packaged as separate, private-by-default model repositories:
 
-## Method
+- [Gold — `AurelPx/gold-next-day-returns-extratrees`](https://huggingface.co/AurelPx/gold-next-day-returns-extratrees)
+- [Silver — `AurelPx/silver-next-day-direction-logistic`](https://huggingface.co/AurelPx/silver-next-day-direction-logistic)
 
-- **Target:** `log(close[t+1] / close[t])`, separately for Gold and Silver.
-- **Inputs:** lagged returns, OHLC-derived features, momentum, rolling volatility, moving-average gaps, drawdown, volume, Gold/Silver ratio, cross-asset statistics and market covariates.
-- **Causality:** every feature uses data available at or before `t`; the target is shifted one observation forward. Tests check that changing the final raw row does not alter earlier features.
-- **Protocol:** the final 20% is locked before model selection; the first 80% is searched with five expanding walk-forward folds and `gap=1`.
-- **Trading rule:** forecast sign maps to `-1`, `0` or `+1`; the position earns the next realized return and pays 10 bps per turnover unit.
-- **Evidence:** validation Sharpe selects models; the locked test is reported once; DM tests compare paired forecast loss; moving-block bootstrap estimates Sharpe uncertainty; Holm and White Reality Check address multiple comparisons.
+Each card contains the estimator, feature schema, configuration, metrics, inference requirements and the full foundation-model audit. The payloads do not include raw Yahoo/FRED data or external foundation-model weights.
 
-The full literature boundary and tested/not-tested matrix are in [`docs/benchmark_review.md`](docs/benchmark_review.md). In particular, compact local PatchTST/TimeMixer/TSMixer probes are not full paper-scale reproductions, and no claim is made against every possible model, feature set or market period.
-
-## Reproduce locally
+## Reproduce
 
 ```bash
 /opt/homebrew/bin/python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev,research]'
 unzip -o data/raw/market_data.parquet.zip -d data/raw/
+
 make analysis
 make train
 make global-benchmark
 make robustness
 make figures
-```
-
-Foundation dependencies include CPU JAX because TimesFM’s official covariate/XReg interface uses it:
-
-```bash
-python -m pip install -e '.[foundation]'
-python scripts/benchmark_foundation_models.py \
-  --chronos-path /path/to/chronos-2 \
-  --chronos2-covariates-path /path/to/chronos-2 \
-  --timesfm-path /path/to/timesfm-2.5-200m-pytorch \
-  --timesfm-covariates-path /path/to/timesfm-2.5-200m-pytorch
-python scripts/compute_foundation_statistics.py
-```
-
-Weights, raw Parquet and processed CSVs stay local and are ignored by Git. The tracked compressed snapshot and [`data/raw/manifest.json`](data/raw/manifest.json) identify the data source, dates and checksum.
-
-## Hugging Face payloads
-
-The export script creates separate Gold and Silver model-card directories. Each contains only one selected model bundle, its feature schema, configuration and metrics; it does not contain Yahoo/FRED data or secrets.
-
-```bash
 python scripts/export_hf.py --asset all --output hf_export
 ```
 
-Recommended private-by-default Hub slugs are `gold-next-day-returns-extratrees` and `silver-next-day-direction-logistic`. The cards follow conventions observed in widely used time-series releases: searchable names, YAML task/library/license metadata, a TL;DR, quick facts, benchmark tables, a copy-paste inference path, citations and explicit limitations. They use “best local model under the stated protocol”, not universal SOTA. Upload only after reviewing the generated cards; create each Hub repository as private. The pattern review is documented in [`docs/huggingface_card_patterns.md`](docs/huggingface_card_patterns.md).
+Foundation-model benchmarking is optional and requires the extra dependencies and local checkpoint paths described in [`docs/benchmark_review.md`](docs/benchmark_review.md). Large weights remain outside Git.
 
 ## Repository map
 
-- `src/gold_silver/`: data, causal features, models, validation, backtest and inference.
-- `notebooks/`: data/correlation, feature quality, benchmark and final-selection analyses.
-- `scripts/`: reproducible download, training, foundation benchmark, statistics, figures and export commands.
-- `tests/`: temporal leakage, causal feature, model and statistical helper tests.
-- `docs/`: glossary, figure explanations and literature/benchmark review.
+- `src/gold_silver/` — data, causal features, models, validation, backtesting and inference.
+- `scripts/` — download, train, benchmark, statistical tests, figures and HF export.
+- `notebooks/` — exploration, correlations, model benchmark and final selection.
+- `tests/` — temporal leakage, causal-feature, model and statistical helper tests.
+- `docs/` — benchmark boundary, glossary, figure guide and Hugging Face card patterns.
+
+## Scope and limitations
+
+This is a controlled research comparison, not a claim against every published architecture, feature set, market period or execution environment. Yahoo Finance data can change; transaction costs, slippage, liquidity and market impact are simplified. The repository reports both positive findings and uncertainty so the result can be reproduced and challenged.
