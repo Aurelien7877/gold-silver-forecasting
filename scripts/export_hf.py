@@ -55,39 +55,44 @@ def _metric(value: object, digits: int = 3) -> str:
 
 
 def _quickstart(asset: str) -> str:
-    if asset == "gold":
-        return '''```python
-import json
-from pathlib import Path
-
-import joblib
-
-ARTIFACT_DIR = Path(".")
-estimator = joblib.load(ARTIFACT_DIR / "model.joblib")
-schema = json.loads((ARTIFACT_DIR / "feature_schema.json").read_text())
-
-# Build this one-row DataFrame with the causal feature builder in the source
-# repository. It must contain exactly the columns listed in schema.
-X_next = build_causal_feature_row(raw_history)[schema["feature_columns"]]
-next_day_log_return = float(estimator.predict(X_next)[0])
-print(next_day_log_return)
-```'''
-    return '''```python
-import json
-from pathlib import Path
-
-import joblib
-
-ARTIFACT_DIR = Path(".")
-estimator = joblib.load(ARTIFACT_DIR / "model.joblib")
-schema = json.loads((ARTIFACT_DIR / "feature_schema.json").read_text())
-
-# Build this one-row DataFrame with the causal feature builder in the source
-# repository. It must contain exactly the columns listed in schema.
-X_next = build_causal_feature_row(raw_history)[schema["feature_columns"]]
-direction_score = float(estimator.predict_proba(X_next)[0, 1] - 0.5)
+    inference = (
+        """next_day_log_return = float(model.predict(X_next)[0])
+last_close = float(history[\"gold_close\"].dropna().iloc[-1])
+print({
+    \"next_day_log_return\": next_day_log_return,
+    \"implied_next_close\": last_close * math.exp(next_day_log_return),
+})"""
+        if asset == "gold"
+        else """direction_score = float(model.predict_proba(X_next)[0, 1] - 0.5)
 position = 1 if direction_score > 0 else -1 if direction_score < 0 else 0
-print({"direction_score": direction_score, "position": position})
+print({\"direction_score\": direction_score, \"position\": position})"""
+    )
+    repo_id = "AurelPx/Aurum-1D" if asset == "gold" else "AurelPx/Argent-1D"
+    return f'''```python
+import json
+import math
+from pathlib import Path
+
+import joblib
+from huggingface_hub import hf_hub_download
+
+from gold_silver.config import load_config
+from gold_silver.data import load_cached_market_data
+from gold_silver.features import build_features
+
+# Run these commands once from the public source repository first:
+#   pip install -e .
+#   python scripts/download_data.py
+model = joblib.load(hf_hub_download("{repo_id}", "model.joblib"))
+schema = json.loads(Path(
+    hf_hub_download("{repo_id}", "feature_schema.json")
+).read_text())
+
+config = load_config("configs/default.yaml")
+history = load_cached_market_data(config)
+features = build_features(history, config)
+X_next = features[schema["feature_columns"]].tail(1)
+{inference}
 ```'''
 
 
@@ -214,9 +219,9 @@ DM compares forecast loss on the same locked dates; `Holm p` corrects the four f
 
 The candidate-aware White Reality Check for the full local-plus-foundation universe is `{_metric(reality['p_value_max_sharpe'], 3)}` for {title}. This is a conditional bootstrap p-value, not a probability that the model will be profitable.
 
-## Reproduce inference
+## Reproduce inference locally
 
-The payload intentionally does not include raw market data. Construct the latest causal feature row with the source repository, preserve the schema order, then load the estimator:
+This is local inference only: no API, endpoint or Space is required. The payload intentionally does not include raw market data. Install the public source repository, download the current cache, reconstruct the latest causal feature row, preserve the schema order, then load the estimator:
 
 {_quickstart(asset)}
 
@@ -289,7 +294,7 @@ def export_asset(asset: str, bundle_path: Path, output_root: Path) -> Path:
         encoding="utf-8",
     )
     (output / "requirements.txt").write_text(
-        "joblib>=1.3\nnumpy>=1.26\npandas>=2.2\nscikit-learn>=1.4\n",
+        "huggingface_hub>=0.30\njoblib>=1.3\nnumpy>=1.26\npandas>=2.2\nscikit-learn>=1.4\n",
         encoding="utf-8",
     )
     print(f"Prepared {output}")

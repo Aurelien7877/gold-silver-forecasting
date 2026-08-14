@@ -83,6 +83,59 @@ The selected estimators are published as the public **Aurum-1D / Argent-1D** mod
 
 Each card starts with its mascot and contains `estimator.joblib`, the feature schema, configuration, metrics, inference requirements and the full Chronos-2 / TimesFM 2.5 audit. The payloads do not include raw Yahoo/FRED data or external foundation-model weights.
 
+### Use the trained weights locally
+
+No API or Space is required. Clone the public source repository, install the package, and refresh the local market-data cache:
+
+```bash
+git clone https://github.com/Aurelien7877/gold-silver-forecasting.git
+cd gold-silver-forecasting
+python -m pip install -e .
+python scripts/download_data.py
+```
+
+Then download the already-trained weights from Hugging Face and run the causal feature builder locally:
+
+```python
+import json
+import math
+from pathlib import Path
+
+import joblib
+from huggingface_hub import hf_hub_download
+
+from gold_silver.config import load_config
+from gold_silver.data import load_cached_market_data
+from gold_silver.features import build_features
+
+
+def load_inputs(repo_id):
+    model = joblib.load(hf_hub_download(repo_id, "model.joblib"))
+    schema = json.loads(Path(
+        hf_hub_download(repo_id, "feature_schema.json")
+    ).read_text())
+    config = load_config("configs/default.yaml")
+    history = load_cached_market_data(config)
+    features = build_features(history, config)
+    X_next = features[schema["feature_columns"]].tail(1)
+    return model, history, X_next
+
+
+gold, history, X_gold = load_inputs("AurelPx/Aurum-1D")
+gold_log_return = float(gold.predict(X_gold)[0])
+last_gold_close = float(history["gold_close"].dropna().iloc[-1])
+print("Gold next-day log return:", gold_log_return)
+print("Gold implied next close:", last_gold_close * math.exp(gold_log_return))
+
+silver, _, X_silver = load_inputs("AurelPx/Argent-1D")
+silver_score = float(silver.predict_proba(X_silver)[0, 1] - 0.5)
+silver_position = 1 if silver_score > 0 else -1 if silver_score < 0 else 0
+print("Silver direction score:", silver_score)
+print("Silver position:", silver_position)
+```
+
+Gold returns a next-day log-return estimate. Silver returns a centered probability score; its sign gives the long/short direction used by the research backtest. The feature builder remains in GitHub so preprocessing is local, causal and versioned.
+
 ## Reproduce
 
 ```bash
